@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const threadsService = require('../services/threadsService');
+const { looksLikeMaintenanceRequest, createTicketFromInbound } = require('../services/maintenanceService');
 
 function extractMessageFields(parsed) {
   const from = parsed.from?.value?.[0] || {};
@@ -28,6 +29,14 @@ async function pollOnce(pool, ownerId) {
     logger: false,
   });
 
+  // ImapFlow surfaces transport-level failures (timeouts, dropped sockets) as
+  // EventEmitter 'error' events, not just rejected promises. An 'error' event
+  // with no listener is fatal in Node — it crashes the whole process, not just
+  // this poll — so this listener is required, not optional.
+  client.on('error', (err) => {
+    console.error('[gmail-poller] IMAP client error:', describeImapError(err));
+  });
+
   await client.connect();
   try {
     const lock = await client.getMailboxLock('INBOX');
@@ -37,6 +46,13 @@ async function pollOnce(pool, ownerId) {
         const fields = extractMessageFields(parsed);
         if (fields.fromEmail) {
           await threadsService.matchInboundMessage(pool, { ownerId, ...fields });
+
+          if (looksLikeMaintenanceRequest(fields.subject, fields.body)) {
+            await createTicketFromInbound({
+              fromEmail: fields.fromEmail, fromName: fields.fromName,
+              subject: fields.subject, body: fields.body,
+            });
+          }
         }
         await client.messageFlagsAdd(msg.uid, ['\\Seen'], { uid: true });
       }
@@ -48,12 +64,17 @@ async function pollOnce(pool, ownerId) {
   }
 }
 
+function describeImapError(err) {
+  const detail = err.response || err.responseText || err.code;
+  return detail ? `${err.message} (${detail})` : err.message;
+}
+
 function startGmailPoller(pool, ownerId) {
   cron.schedule('*/1 * * * *', async () => {
     try {
       await pollOnce(pool, ownerId);
     } catch (err) {
-      console.error('[gmail-poller] poll failed:', err.message);
+      console.error('[gmail-poller] poll failed:', describeImapError(err));
     }
   });
   console.log('Gmail inbound poller started (every 60s).');

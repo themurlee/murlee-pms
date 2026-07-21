@@ -33,3 +33,27 @@ describe('extractMessageFields', () => {
     });
   });
 });
+
+describe('pollOnce', () => {
+  test('attaches an error listener to the IMAP client so a socket error cannot crash the process', async () => {
+    jest.resetModules();
+
+    const onSpy = jest.fn();
+    jest.doMock('imapflow', () => ({
+      ImapFlow: jest.fn().mockImplementation(() => ({
+        on: onSpy,
+        connect: jest.fn().mockResolvedValue(undefined),
+        logout: jest.fn().mockResolvedValue(undefined),
+        getMailboxLock: jest.fn().mockResolvedValue({ release: jest.fn() }),
+        fetch: () => (async function* () {})(),
+        messageFlagsAdd: jest.fn(),
+      })),
+    }));
+    jest.doMock('mailparser', () => ({ simpleParser: jest.fn() }));
+
+    const { pollOnce } = require('../src/lib/gmailPoller');
+    await pollOnce({ query: jest.fn() }, 'owner-1');
+
+    expect(onSpy).toHaveBeenCalledWith('error', expect.any(Function));
+  });
+});
