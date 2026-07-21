@@ -60,7 +60,7 @@ export const TenantLedger = ({ onBack }: TenantLedgerProps) => {
       `tenant-ledger-${selectedLease.tenant_name.replace(/\s+/g, '-').toLowerCase()}.csv`,
       ['Charge / Payment Description', 'Date Due', 'Date Paid', 'Date Deposited (est)', 'Amount Due', 'Amount Paid'],
       rows.map((inv) => {
-        const total = inv.amount_due + inv.late_fee;
+        const total = inv.breakdown.total_due;
         const paidDate = inv.paid_at ? inv.paid_at.split('T')[0] : '';
         return ['Rent & Fees', inv.due_date, paidDate, paidDate, total.toFixed(2), inv.status === 'paid' ? total.toFixed(2) : ''];
       })
@@ -125,7 +125,7 @@ export const TenantLedger = ({ onBack }: TenantLedgerProps) => {
             </thead>
             <tbody className="divide-y divide-white/5">
               {rows.map((inv) => {
-                const total = inv.amount_due + inv.late_fee;
+                const total = inv.breakdown.total_due;
                 const paidDate = inv.paid_at ? inv.paid_at.split('T')[0] : '—';
                 return (
                   <tr key={inv.id} className="hover:bg-white/5 transition-all">

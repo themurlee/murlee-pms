@@ -8,7 +8,7 @@ const LIST_QUERY = `
          p.id AS property_id, p.nickname AS property_name,
          t.id AS tenant_id, t.name AS tenant_name, t.email AS tenant_email,
          l.rent_amount, l.start_date AS lease_start, l.end_date AS lease_end,
-         (SELECT COALESCE(SUM(i.amount_due + i.late_fee), 0)
+         (SELECT COALESCE(SUM(i.amount_due + i.late_fee + COALESCE((SELECT SUM(ii.amount) FROM invoice_items ii WHERE ii.invoice_id = i.id), 0)), 0)
             FROM invoices i WHERE i.lease_id = l.id AND i.status IN ('unpaid', 'overdue')) AS balance_due
   FROM units u
   JOIN properties p ON u.property_id = p.id

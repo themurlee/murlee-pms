@@ -38,6 +38,42 @@ async function updateInvoiceStatus(transferId, newStatus) {
   }
 }
 
+/**
+ * Adds an ad hoc named charge to an invoice (e.g. "Pet Fee"). Blocked once the
+ * invoice is paid — a closed invoice's total shouldn't change after the fact.
+ */
+async function addInvoiceItem(pool, invoiceId, { description, amount }) {
+  const invoiceRes = await pool.query('SELECT status FROM invoices WHERE id = $1', [invoiceId]);
+  if (invoiceRes.rows.length === 0) return { ok: false, error: 'Invoice not found' };
+  if (invoiceRes.rows[0].status === 'paid') return { ok: false, error: 'Cannot add items to a paid invoice' };
+
+  const res = await pool.query(
+    `INSERT INTO invoice_items (invoice_id, description, amount) VALUES ($1, $2, $3) RETURNING id`,
+    [invoiceId, description, amount]
+  );
+  invalidateDashboardCache();
+  return { ok: true, id: res.rows[0].id };
+}
+
+/**
+ * Removes an invoice item. Blocked once the invoice is paid, for the same
+ * reason additions are blocked.
+ */
+async function deleteInvoiceItem(pool, invoiceId, itemId) {
+  const invoiceRes = await pool.query('SELECT status FROM invoices WHERE id = $1', [invoiceId]);
+  if (invoiceRes.rows.length === 0) return { ok: false, error: 'Invoice not found' };
+  if (invoiceRes.rows[0].status === 'paid') return { ok: false, error: 'Cannot remove items from a paid invoice' };
+
+  const res = await pool.query(
+    'DELETE FROM invoice_items WHERE id = $1 AND invoice_id = $2',
+    [itemId, invoiceId]
+  );
+  invalidateDashboardCache();
+  return { ok: res.rowCount > 0 };
+}
+
 module.exports = {
   updateInvoiceStatus,
+  addInvoiceItem,
+  deleteInvoiceItem,
 };

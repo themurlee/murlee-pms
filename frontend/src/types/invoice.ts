@@ -9,8 +9,15 @@ export interface InvoiceActions {
 export interface InvoiceBreakdown {
   base_rent: number;
   late_fee: number;
+  items_total: number;
   total_due: number;
   payment_method: string;
+}
+
+export interface InvoiceItem {
+  id: string;
+  description: string;
+  amount: number;
 }
 
 export interface TimelineEvent {
@@ -38,5 +45,6 @@ export interface Invoice {
   actions: InvoiceActions;
   active_view: 'payment_timeline' | 'invoice_breakdown';
   timeline: TimelineEvent[];
+  items: InvoiceItem[];
   breakdown: InvoiceBreakdown;
 }

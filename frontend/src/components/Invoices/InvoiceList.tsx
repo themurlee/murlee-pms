@@ -4,6 +4,7 @@ import { TimelineView } from './TimelineView';
 import { BillingSettings } from './BillingSettings';
 import { RentRoll } from '../shared/RentRoll';
 import { TenantLedger } from '../shared/TenantLedger';
+import { useInvoiceActions } from '../../hooks/useInvoiceActions';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -27,6 +28,10 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
   const [view, setView] = useState<View>('ledger');
   const [leaseTab, setLeaseTab] = useState<LeaseTab>('active');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const { addInvoiceItem, deleteInvoiceItem } = useInvoiceActions();
+  const [isAddingItem, setIsAddingItem] = useState(false);
+  const [newItemDesc, setNewItemDesc] = useState('');
+  const [newItemAmount, setNewItemAmount] = useState('');
 
   // Dynamic Notes Log for Invoices
   const [invoiceNotes, setInvoiceNotes] = useState<Record<string, string[]>>({
@@ -55,11 +60,24 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
   const handleMarkPaidWithNotification = (id: string) => {
     onMarkAsPaid(id);
     setToastMessage(`Payment registered successfully for ${id}. Tenant has been notified!`);
-    
+
     // Automatically dismiss toast after 4s
     setTimeout(() => {
       setToastMessage(null);
     }, 4000);
+  };
+
+  const handleAddItem = async (invoiceId: string) => {
+    const amount = Number(newItemAmount);
+    if (!newItemDesc.trim() || !newItemAmount || Number.isNaN(amount) || amount <= 0) return;
+    await addInvoiceItem({ invoiceId, description: newItemDesc.trim(), amount });
+    setNewItemDesc('');
+    setNewItemAmount('');
+    setIsAddingItem(false);
+  };
+
+  const handleDeleteItem = async (invoiceId: string, itemId: string) => {
+    await deleteInvoiceItem({ invoiceId, itemId });
   };
 
   const handleStartEdit = (inv: Invoice) => {
@@ -114,7 +132,7 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
   // KPI buckets: Upcoming/Completed scoped to this month by due_date; Processing/Overdue all-time.
   const kpis = useMemo(() => {
     const bucket = (pred: (i: Invoice) => boolean) =>
-      invoices.filter(pred).reduce((acc, i) => ({ total: acc.total + i.amount_due + i.late_fee, count: acc.count + 1 }), { total: 0, count: 0 });
+      invoices.filter(pred).reduce((acc, i) => ({ total: acc.total + i.breakdown.total_due, count: acc.count + 1 }), { total: 0, count: 0 });
 
     return {
       upcoming: bucket((i) => i.status === 'unpaid' && isThisMonth(i.due_date)),
@@ -251,9 +269,12 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
                       {inv.lease_start && inv.lease_end ? `${inv.lease_start} – ${inv.lease_end}` : '—'}
                     </td>
                     <td className="px-6 py-4 text-sm">
-                      <div className="font-extrabold text-white text-outfit">${inv.amount_due}</div>
+                      <div className="font-extrabold text-white text-outfit">${inv.breakdown.total_due.toLocaleString()}</div>
                       {inv.late_fee > 0 && !lateFeeWaived && (
                         <div className="text-xs text-rose-400 font-semibold mt-0.5">Late Fee: +${inv.late_fee}</div>
+                      )}
+                      {inv.items.length > 0 && (
+                        <div className="text-xs text-indigo-400 font-semibold mt-0.5">+{inv.items.length} item{inv.items.length === 1 ? '' : 's'}</div>
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm">
@@ -396,7 +417,7 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
                 <div className="grid grid-cols-2 gap-3 text-xs bg-slate-950/40 p-3 rounded-xl border border-white/5">
                   <div>
                     <span className="text-slate-500 block">Amount Due</span>
-                    <strong className="text-white text-sm text-outfit">${selectedInvoice.amount_due}</strong>
+                    <strong className="text-white text-sm text-outfit">${selectedInvoice.breakdown.total_due.toLocaleString()}</strong>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Due Date</span>
@@ -411,6 +432,65 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
                     <strong className="text-slate-300">{selectedInvoice.breakdown.payment_method}</strong>
                   </div>
                 </div>
+
+                {/* Custom invoice items */}
+                <div className="flex flex-col gap-2">
+                  {selectedInvoice.items.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 text-xs bg-white/5 border border-white/5 rounded-lg px-3 py-2">
+                      <span className="text-slate-300 truncate">{item.description}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-white font-semibold">${item.amount.toLocaleString()}</span>
+                        {selectedInvoice.status !== 'paid' && (
+                          <button
+                            onClick={() => handleDeleteItem(selectedInvoice.id, item.id)}
+                            className="text-slate-500 hover:text-rose-400 transition-colors"
+                            title="Remove item"
+                          >
+                            🗑
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {selectedInvoice.status !== 'paid' && (
+                    isAddingItem ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={newItemDesc}
+                          onChange={(e) => setNewItemDesc(e.target.value)}
+                          placeholder="Enter fee name"
+                          className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={newItemAmount}
+                          onChange={(e) => setNewItemAmount(e.target.value)}
+                          placeholder="$0.00"
+                          className="w-24 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                        />
+                        <button onClick={() => setIsAddingItem(false)} className="text-slate-500 hover:text-rose-400 transition-colors" title="Cancel">🗑</button>
+                        <button onClick={() => handleAddItem(selectedInvoice.id)} className="text-emerald-400 hover:text-emerald-300 transition-colors font-bold" title="Confirm">✓</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setIsAddingItem(true)}
+                        className="self-start text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-all"
+                      >
+                        + Add New Invoice Item
+                      </button>
+                    )
+                  )}
+
+                  <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1">
+                    <span className="text-xs font-bold text-slate-300">Invoice total</span>
+                    <span className="text-sm font-extrabold text-white text-outfit">${selectedInvoice.breakdown.total_due.toLocaleString()}</span>
+                  </div>
+                </div>
+
                 {selectedInvoice.status !== 'paid' && selectedInvoice.actions.can_mark_as_paid && (
                   <button 
                     onClick={() => handleMarkPaidWithNotification(selectedInvoice.id)}

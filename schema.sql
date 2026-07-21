@@ -194,3 +194,16 @@ CREATE INDEX IF NOT EXISTS idx_transactions_account_class ON transactions(accoun
 -- Invoices: exact payment timestamp (distinct from due_date), used by the
 -- Rent Collection Ledger, Tenant Ledger, and Rent Roll views.
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+
+-- Ad hoc named charges on an invoice (e.g. "Pet Fee", "Parking"), added one at
+-- a time from the invoice detail drawer. An invoice's true total owed is
+-- amount_due (base rent) + late_fee + SUM(invoice_items.amount) — every place
+-- that computes "total owed" must include this sum, not just amount_due + late_fee.
+CREATE TABLE IF NOT EXISTS invoice_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    invoice_id UUID REFERENCES invoices(id) ON DELETE CASCADE,
+    description VARCHAR(255) NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
