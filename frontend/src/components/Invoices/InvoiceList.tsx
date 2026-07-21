@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Invoice } from '../../types/invoice';
 import { TimelineView } from './TimelineView';
+import { BillingSettings } from './BillingSettings';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -119,7 +120,16 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
 
   return (
     <div className="flex flex-col gap-6 relative">
-      
+
+      {/* Billing automation controls */}
+      <div className="flex justify-between items-center gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white text-outfit tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">Rent Collection</h1>
+          <p className="text-slate-400 text-sm mt-1">Invoices auto-generate monthly; late fees apply after the grace period</p>
+        </div>
+        <BillingSettings />
+      </div>
+
       {/* Premium Toast Notification Alert */}
       {toastMessage && (
         <div className="fixed top-6 right-6 z-50 animate-slideIn bg-slate-900 border-2 border-emerald-500 rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-4 max-w-md backdrop-blur-xl">

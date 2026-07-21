@@ -1,28 +1,32 @@
 import { useState } from 'react';
+import { useProperties, Property, UnitInput } from '../../hooks/useProperties';
+import { useEntities } from '../../hooks/useEntities';
 
-interface Property {
-  id: string;
-  name: string;
-  units: number;
-  income: number;
-  address: string;
-}
+const PROPERTY_TYPES = ['Single-Family', 'Multi-Family', 'Condo', 'Townhouse', 'Apartment', 'Commercial'];
+const emptyAddr = { street: '', city: '', state: '', zip: '' };
+const blankUnit = (): UnitInput => ({ unit_number: '', beds: undefined, baths: undefined, sq_ft: undefined, market_rent: undefined });
 
 export const Properties = () => {
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
-  const [properties, setProperties] = useState<Property[]>([
-    { id: '1', name: 'Oakridge Manor', units: 12, income: 15400, address: '128 Oakridge Dr' },
-    { id: '2', name: 'Pacific Breeze', units: 8, income: 11200, address: '445 Coastline Hwy' },
-  ]);
+  const { properties, createProperty, updateProperty, deleteProperty } = useProperties();
+  const { entities } = useEntities();
 
   // Form modals state
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [units, setUnits] = useState(1);
+  const [addr, setAddr] = useState({ ...emptyAddr });
+  const [propertyType, setPropertyType] = useState('Single-Family');
+  const [entityId, setEntityId] = useState('');
   const [income, setIncome] = useState(1000);
+  const [unitRows, setUnitRows] = useState<UnitInput[]>([blankUnit()]);
+
+  const setAddrField = (k: keyof typeof emptyAddr, v: string) => setAddr(prev => ({ ...prev, [k]: v }));
+  const updateUnitRow = (i: number, patch: Partial<UnitInput>) =>
+    setUnitRows(prev => prev.map((u, idx) => (idx === i ? { ...u, ...patch } : u)));
+  const addUnitRow = () => setUnitRows(prev => [...prev, blankUnit()]);
+  const removeUnitRow = (i: number) => setUnitRows(prev => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
 
   interface Tenant {
     id: string;
@@ -82,51 +86,61 @@ export const Properties = () => {
     ]
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !address.trim()) return;
-
-    const newProperty: Property = {
-      id: String(Date.now()),
-      name,
-      address,
-      units,
-      income,
-    };
-
-    setProperties([...properties, newProperty]);
+  const resetForm = () => {
     setName('');
-    setAddress('');
-    setUnits(1);
+    setAddr({ ...emptyAddr });
+    setPropertyType('Single-Family');
+    setEntityId('');
     setIncome(1000);
+    setUnitRows([blankUnit()]);
+  };
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !addr.street.trim()) return;
+
+    const unit_list = unitRows
+      .filter(u => (u.unit_number || '').trim())
+      .map((u, i) => ({
+        unit_number: u.unit_number || `Unit ${i + 1}`,
+        beds: u.beds ? Number(u.beds) : undefined,
+        baths: u.baths ? Number(u.baths) : undefined,
+        sq_ft: u.sq_ft ? Number(u.sq_ft) : undefined,
+        market_rent: u.market_rent ? Number(u.market_rent) : 0,
+      }));
+
+    await createProperty({
+      name, address: addr, property_type: propertyType, entity_id: entityId || null,
+      unit_list: unit_list.length ? unit_list : undefined,
+      units: unit_list.length || 1,
+    });
+    resetForm();
     setIsAddOpen(false);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !address.trim() || !selectedPropertyId) return;
+    if (!name.trim() || !addr.street.trim() || !selectedPropertyId) return;
 
-    setProperties(prev => prev.map(p => {
-      if (p.id === selectedPropertyId) {
-        return { ...p, name, address, units, income };
-      }
-      return p;
-    }));
-
+    await updateProperty({
+      id: selectedPropertyId, name, address: addr,
+      property_type: propertyType, entity_id: entityId || null, income,
+    });
     setIsEditOpen(false);
   };
 
   const handleStartEdit = (prop: Property) => {
     setName(prop.name);
-    setAddress(prop.address);
-    setUnits(prop.units);
+    setAddr({ ...emptyAddr, ...(prop.address_parts || { street: prop.address }) });
+    setPropertyType(prop.property_type || 'Single-Family');
+    setEntityId(prop.entity_id || '');
     setIncome(prop.income);
     setIsEditOpen(true);
   };
 
-  const handleDeleteProperty = (id: string) => {
+  const handleDeleteProperty = async (id: string) => {
     if (confirm('Are you sure you want to delete this property? All associated data will be deleted.')) {
-      setProperties(prev => prev.filter(p => p.id !== id));
+      await deleteProperty(id);
       setSelectedPropertyId(null);
     }
   };
@@ -145,13 +159,7 @@ export const Properties = () => {
               <p className="text-slate-400 text-sm mt-1">Select a property for detailed metrics</p>
             </div>
             <button
-              onClick={() => {
-                setName('');
-                setAddress('');
-                setUnits(1);
-                setIncome(1000);
-                setIsAddOpen(true);
-              }}
+              onClick={() => { resetForm(); setIsAddOpen(true); }}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white text-sm shadow-lg shadow-indigo-500/20 hover:scale-[1.02] hover:shadow-indigo-500/35 transition-all duration-200 text-outfit"
             >
               + Add Property
@@ -164,8 +172,12 @@ export const Properties = () => {
                 className="glass-card p-6 rounded-2xl flex flex-col justify-between"
               >
                 <div onClick={() => setSelectedPropertyId(p.id)} className="cursor-pointer">
-                  <h3 className="text-xl font-bold text-white text-outfit">{p.name}</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-xl font-bold text-white text-outfit">{p.name}</h3>
+                    {p.property_type && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{p.property_type}</span>}
+                  </div>
                   <p className="text-slate-400 text-sm mt-1">{p.address}</p>
+                  {p.entity_name && <p className="text-[11px] text-slate-500 mt-0.5">🏛 {p.entity_name}</p>}
                 </div>
                 <div className="mt-6 flex justify-between items-center">
                   <div className="flex gap-3 text-xs text-slate-300 font-semibold tracking-wide">
@@ -295,14 +307,17 @@ export const Properties = () => {
       )}
 
       {/* Add / Edit Modals */}
-      {(isAddOpen || isEditOpen) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-opacity">
-          <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 relative flex flex-col gap-5">
+      {(isAddOpen || isEditOpen) && (() => {
+        const fieldCls = 'bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition-colors';
+        const labelCls = 'text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit';
+        return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-opacity overflow-y-auto">
+          <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 relative flex flex-col gap-5 my-8">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold text-white text-outfit tracking-tight">
                 {isAddOpen ? 'Add New Property' : 'Edit Property Details'}
               </h2>
-              <button 
+              <button
                 onClick={() => { setIsAddOpen(false); setIsEditOpen(false); }}
                 className="text-slate-400 hover:text-white transition-colors font-bold text-xl"
               >
@@ -311,75 +326,80 @@ export const Properties = () => {
             </div>
 
             <form onSubmit={isAddOpen ? handleAddSubmit : handleEditSubmit} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Property Name</label>
-                <input 
-                  type="text" 
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Pinecrest Plaza"
-                  className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition-colors"
-                  required
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Address</label>
-                <input 
-                  type="text" 
-                  value={address}
-                  onChange={e => setAddress(e.target.value)}
-                  placeholder="e.g. 789 Pinewood Lane"
-                  className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition-colors"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Total Units</label>
-                  <input 
-                    type="number" 
-                    value={units}
-                    onChange={e => setUnits(Number(e.target.value))}
-                    min={1}
-                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                    required
-                  />
+                  <label className={labelCls}>Property Name</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Pinecrest Plaza" className={fieldCls} required />
                 </div>
-
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Estimated Rent Roll ($)</label>
-                  <input 
-                    type="number" 
-                    value={income}
-                    onChange={e => setIncome(Number(e.target.value))}
-                    min={0}
-                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                    required
-                  />
+                  <label className={labelCls}>Property Type</label>
+                  <select value={propertyType} onChange={e => setPropertyType(e.target.value)} className={fieldCls}>
+                    {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
               </div>
 
-              <div className="flex gap-3 justify-end mt-4">
-                <button
-                  type="button"
-                  onClick={() => { setIsAddOpen(false); setIsEditOpen(false); }}
-                  className="px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 font-semibold text-sm hover:bg-white/5 transition-all text-outfit"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white text-sm shadow-lg shadow-indigo-500/20 hover:scale-[1.02] hover:shadow-indigo-500/35 transition-all duration-200 text-outfit"
-                >
+              <div className="flex flex-col gap-2">
+                <label className={labelCls}>Owning Entity</label>
+                <select value={entityId} onChange={e => setEntityId(e.target.value)} className={fieldCls}>
+                  <option value="">— No entity —</option>
+                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+                </select>
+              </div>
+
+              {/* Structured address */}
+              <div className="flex flex-col gap-3 border-t border-white/5 pt-4">
+                <span className={labelCls}>Address</span>
+                <input type="text" value={addr.street} onChange={e => setAddrField('street', e.target.value)} placeholder="Street address" className={fieldCls} required />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <input type="text" value={addr.city} onChange={e => setAddrField('city', e.target.value)} placeholder="City" className={fieldCls} />
+                  <input type="text" value={addr.state} onChange={e => setAddrField('state', e.target.value)} placeholder="State" className={fieldCls} />
+                  <input type="text" value={addr.zip} onChange={e => setAddrField('zip', e.target.value)} placeholder="ZIP" className={`${fieldCls} col-span-2 sm:col-span-1`} />
+                </div>
+              </div>
+
+              {/* Units editor (add only) or rent roll (edit) */}
+              {isAddOpen ? (
+                <div className="flex flex-col gap-3 border-t border-white/5 pt-4">
+                  <div className="flex justify-between items-center">
+                    <span className={labelCls}>Units</span>
+                    <button type="button" onClick={addUnitRow} className="text-xs font-bold text-indigo-400 hover:text-indigo-300">+ Add Unit</button>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] text-slate-500 font-bold uppercase px-1">
+                      <span className="col-span-3">Unit #</span><span className="col-span-2">Beds</span><span className="col-span-2">Baths</span><span className="col-span-2">Sq Ft</span><span className="col-span-2">Rent $</span><span className="col-span-1"></span>
+                    </div>
+                    {unitRows.map((u, i) => (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                        <input value={u.unit_number} onChange={e => updateUnitRow(i, { unit_number: e.target.value })} placeholder={`Unit ${i + 1}`} className={`${fieldCls} col-span-12 sm:col-span-3 !py-2`} />
+                        <input type="number" min={0} value={u.beds ?? ''} onChange={e => updateUnitRow(i, { beds: e.target.value ? Number(e.target.value) : undefined })} placeholder="Beds" className={`${fieldCls} col-span-3 sm:col-span-2 !py-2`} />
+                        <input type="number" min={0} step="0.5" value={u.baths ?? ''} onChange={e => updateUnitRow(i, { baths: e.target.value ? Number(e.target.value) : undefined })} placeholder="Baths" className={`${fieldCls} col-span-3 sm:col-span-2 !py-2`} />
+                        <input type="number" min={0} value={u.sq_ft ?? ''} onChange={e => updateUnitRow(i, { sq_ft: e.target.value ? Number(e.target.value) : undefined })} placeholder="Sq ft" className={`${fieldCls} col-span-3 sm:col-span-2 !py-2`} />
+                        <input type="number" min={0} value={u.market_rent ?? ''} onChange={e => updateUnitRow(i, { market_rent: e.target.value ? Number(e.target.value) : undefined })} placeholder="Rent" className={`${fieldCls} col-span-2 sm:col-span-2 !py-2`} />
+                        <button type="button" onClick={() => removeUnitRow(i)} className="col-span-1 text-slate-500 hover:text-rose-400 font-bold text-lg" title="Remove unit">&times;</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
+                  <label className={labelCls}>Estimated Rent Roll ($)</label>
+                  <input type="number" value={income} onChange={e => setIncome(Number(e.target.value))} min={0} className={fieldCls} />
+                  <span className="text-[11px] text-slate-500">Edit individual units from the property drilldown (coming next). This adjusts the property-level estimate.</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 justify-end mt-2">
+                <button type="button" onClick={() => { setIsAddOpen(false); setIsEditOpen(false); }} className="px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 font-semibold text-sm hover:bg-white/5 transition-all text-outfit">Cancel</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white text-sm shadow-lg shadow-indigo-500/20 hover:scale-[1.02] hover:shadow-indigo-500/35 transition-all duration-200 text-outfit">
                   {isAddOpen ? 'Add Property' : 'Save Changes'}
                 </button>
               </div>
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

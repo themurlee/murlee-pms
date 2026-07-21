@@ -1,178 +1,122 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useTransactions, Transaction, TransactionInput } from '../../hooks/useTransactions';
 
-interface LedgerItem {
-  id: string;
-  date: string;
-  postedDate: string;
-  account: string;
-  description: string;
-  amount: number;
-  category: string;
-  property: string;
-  note: string;
-  reviewed: boolean;
-  merchantType?: string;
-  method?: string;
-  cardNumber?: string;
-}
+const CATEGORIES = [
+  'Rent Received', 'Repairs', 'Supplies', 'Taxes', 'Utilities', 'Insurance',
+  'Cleaning and Maintenance', 'Advertising', 'Auto and Travel',
+  'Legal and Other Professional Fees', 'Mortgage Interest Paid to Banks',
+  'Other Expenses', 'Health & Wellness', 'Food & Dining', 'Travel',
+];
+
+const emptyAdd = () => ({
+  description: '',
+  amount: '',
+  transaction_date: new Date().toISOString().split('T')[0],
+  category: 'Repairs',
+  account_class: 'real_estate' as 'real_estate' | 'personal',
+});
 
 export const Ledger = () => {
-  const initialLedger: LedgerItem[] = [
-    { 
-      id: 'L-1', 
-      date: '2024-09-15', 
-      postedDate: '2024-09-16', 
-      account: 'Chase Checking (...7981)', 
-      description: 'ONELIFE VICKERY SPORTS C', 
-      amount: -200.00, 
-      category: 'Health & Wellness', 
-      property: 'None (Personal)', 
-      note: 'Monthly health club subscription.', 
-      reviewed: false,
-      merchantType: 'Membership clubs, country clubs, private golf courses',
-      method: 'Online, mail or phone',
-      cardNumber: '(...7981)'
-    },
-    { 
-      id: 'L-2', 
-      date: '2026-07-10', 
-      postedDate: '2026-07-11', 
-      account: 'Plaid Business ACH', 
-      description: 'Monthly Rent - Jane Doe', 
-      amount: 1400.00, 
-      category: 'Rent Received', 
-      property: 'Oakridge Manor', 
-      note: '', 
-      reviewed: true 
-    },
-    { 
-      id: 'L-3', 
-      date: '2026-07-08', 
-      postedDate: '2026-07-09', 
-      account: 'Home Depot Commercial Card', 
-      description: 'Home Depot supplies', 
-      amount: -85.00, 
-      category: 'Supplies', 
-      property: 'Oakridge Manor', 
-      note: 'Need to review tax allocation', 
-      reviewed: false 
-    },
-    { 
-      id: 'L-4', 
-      date: '2026-07-05', 
-      postedDate: '2026-07-06', 
-      account: 'Plaid Business ACH', 
-      description: 'Plumbing Repair Service', 
-      amount: -350.00, 
-      category: 'Repairs', 
-      property: 'Pacific Breeze', 
-      note: 'Emergency hot water tank repair', 
-      reviewed: true 
-    },
-  ];
+  const [classFilter, setClassFilter] = useState<'all' | 'real_estate' | 'personal'>('all');
+  const { transactions, createTransaction, updateTransaction } = useTransactions(
+    classFilter === 'all' ? {} : { account_class: classFilter }
+  );
 
-  const [ledger, setLedger] = useState<LedgerItem[]>(initialLedger);
-  const [selectedItem, setSelectedItem] = useState<LedgerItem | null>(null);
-  const [filterType, setFilterType] = useState<'all' | 'missing_category' | 'missing_property'>('all');
+  const [selectedItem, setSelectedItem] = useState<Transaction | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [memoInput, setMemoInput] = useState('');
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState(emptyAdd());
 
-  const handleOpenDetails = (item: LedgerItem) => {
+  const handleOpenDetails = (item: Transaction) => {
     setSelectedItem(item);
-    setMemoInput(item.note);
+    setMemoInput(item.memo);
   };
 
-  const handleSaveMemo = () => {
-    if (selectedItem) {
-      setLedger(prev => prev.map(item => 
-        item.id === selectedItem.id ? { ...item, note: memoInput } : item
-      ));
-      setSelectedItem(prev => prev ? { ...prev, note: memoInput } : null);
-    }
+  const handleSaveMemo = async () => {
+    if (!selectedItem) return;
+    await updateTransaction({ id: selectedItem.id, memo: memoInput });
+    setSelectedItem({ ...selectedItem, memo: memoInput });
   };
 
-  const handleApprove = (id: string) => {
-    setLedger(prev => prev.map(item => 
-      item.id === id ? { ...item, reviewed: true } : item
-    ));
-    if (selectedItem?.id === id) {
-      setSelectedItem(prev => prev ? { ...prev, reviewed: true } : null);
-    }
+  const handleChangeCategory = async (category: string) => {
+    if (!selectedItem) return;
+    await updateTransaction({ id: selectedItem.id, category });
+    setSelectedItem({ ...selectedItem, category });
   };
 
-  // Filter logic matching Baselane screenshot quick filters
-  const filteredLedger = ledger.filter(item => {
-    if (filterType === 'missing_category') return item.category === '' || item.category === 'None';
-    if (filterType === 'missing_property') return item.property === '' || item.property === 'None (Personal)';
-    
-    if (searchQuery) {
-      return item.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
-             item.category.toLowerCase().includes(searchQuery.toLowerCase());
-    }
-    return true;
-  });
+  const handleApprove = async () => {
+    if (!selectedItem) return;
+    await updateTransaction({ id: selectedItem.id, reviewed: true });
+    setSelectedItem({ ...selectedItem, reviewed: true });
+  };
+
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const input: TransactionInput = {
+      description: addForm.description,
+      amount: -Math.abs(Number(addForm.amount)), // expenses are negative
+      transaction_date: addForm.transaction_date,
+      category: addForm.category,
+      account_class: addForm.account_class,
+    };
+    await createTransaction(input);
+    setAddForm(emptyAdd());
+    setIsAddOpen(false);
+  };
+
+  const filtered = useMemo(() => {
+    if (!searchQuery) return transactions;
+    const q = searchQuery.toLowerCase();
+    return transactions.filter(
+      (t) => t.description.toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q)
+    );
+  }, [transactions, searchQuery]);
 
   return (
     <div className="glass-panel p-6 rounded-2xl flex flex-col gap-6">
       {/* Top action row */}
       <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-4">
-        {/* Quick filters */}
+        {/* Class filter */}
         <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Quick filters</span>
-          <button 
-            onClick={() => setFilterType(filterType === 'missing_category' ? 'all' : 'missing_category')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-              filterType === 'missing_category' 
-                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/10' 
-                : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200'
-            }`}
-          >
-            🔍 Missing category
-          </button>
-          <button 
-            onClick={() => setFilterType(filterType === 'missing_property' ? 'all' : 'missing_property')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-              filterType === 'missing_property' 
-                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/10' 
-                : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200'
-            }`}
-          >
-            🏢 Missing property
-          </button>
+          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Class</span>
+          {(['all', 'real_estate', 'personal'] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setClassFilter(c)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                classFilter === c
+                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/10'
+                  : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200'
+              }`}
+            >
+              {c === 'all' ? 'All' : c === 'real_estate' ? 'Real estate' : 'Personal'}
+            </button>
+          ))}
         </div>
 
-        {/* Global bookkeeping buttons */}
         <div className="flex gap-2">
-          <button className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-            ✨ Automate Bookkeeping
+          <button
+            onClick={() => { setAddForm(emptyAdd()); setIsAddOpen(true); }}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+          >
+            + Add expense
           </button>
-          <button className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 border border-white/5 text-slate-300">
-            📤 Upload Receipts
-          </button>
-          <button className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 border border-white/5 text-slate-300">
-            📥 Export
+          <button className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 border border-white/5 text-slate-300" title="Coming in Phase 2">
+            📤 Upload CSV
           </button>
         </div>
       </div>
 
-      {/* Filter Options Row */}
+      {/* Search */}
       <div className="flex gap-3 flex-wrap items-center">
-        <input 
-          type="text" 
-          placeholder="Search transactions..." 
+        <input
+          type="text"
+          placeholder="Search transactions..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="bg-slate-900 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 max-w-xs"
         />
-        <select className="bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-400">
-          <option>Review Status</option>
-        </select>
-        <select className="bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-400">
-          <option>Date Range</option>
-        </select>
-        <select className="bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-400">
-          <option>Property</option>
-        </select>
       </div>
 
       {/* Ledger Table */}
@@ -181,29 +125,29 @@ export const Ledger = () => {
           <thead className="bg-white/5 text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">
             <tr>
               <th className="px-6 py-4">Date</th>
-              <th className="px-6 py-4">Account</th>
               <th className="px-6 py-4">Description</th>
               <th className="px-6 py-4 text-right">Amount</th>
               <th className="px-6 py-4">Category</th>
-              <th className="px-6 py-4">Property</th>
+              <th className="px-6 py-4">Class</th>
               <th className="px-6 py-4">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5 bg-transparent text-sm">
-            {filteredLedger.map(item => (
-              <tr 
-                key={item.id} 
+            {filtered.map((item) => (
+              <tr
+                key={item.id}
                 onClick={() => handleOpenDetails(item)}
                 className="hover:bg-white/5 transition-all duration-150 cursor-pointer align-middle"
               >
-                <td className="px-6 py-4 text-slate-400">{item.date}</td>
-                <td className="px-6 py-4 text-slate-300 text-xs font-mono">{item.account}</td>
+                <td className="px-6 py-4 text-slate-400">{item.transaction_date}</td>
                 <td className="px-6 py-4 font-bold text-white text-outfit">{item.description}</td>
                 <td className={`px-6 py-4 text-right font-extrabold text-outfit ${item.amount > 0 ? 'text-emerald-400' : 'text-slate-200'}`}>
-                  {item.amount > 0 ? `+$${item.amount}` : `-$${Math.abs(item.amount)}`}
+                  {item.amount > 0 ? `+$${item.amount.toLocaleString()}` : `-$${Math.abs(item.amount).toLocaleString()}`}
                 </td>
                 <td className="px-6 py-4 text-xs font-semibold text-indigo-400">{item.category}</td>
-                <td className="px-6 py-4 text-xs text-slate-400">{item.property}</td>
+                <td className="px-6 py-4 text-xs text-slate-400">
+                  {item.account_class === 'real_estate' ? 'Real estate' : 'Personal'}
+                </td>
                 <td className="px-6 py-4 text-xs">
                   {item.reviewed ? (
                     <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold uppercase">Reviewed</span>
@@ -215,14 +159,17 @@ export const Ledger = () => {
             ))}
           </tbody>
         </table>
+        {filtered.length === 0 && (
+          <div className="p-10 text-center text-slate-500 text-sm">No transactions yet.</div>
+        )}
       </div>
 
-      {/* Baselane Transaction Detail Modal matching screenshot f14ae1b9-15e0-4c13-be5f-f14f84f9175a.png */}
+      {/* Transaction Detail Modal */}
       {selectedItem && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-white/10 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative">
-            <button 
-              onClick={() => setSelectedItem(null)} 
+            <button
+              onClick={() => setSelectedItem(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg"
             >
               ✕
@@ -230,79 +177,64 @@ export const Ledger = () => {
             <h3 className="text-xl font-bold text-white mb-6 text-outfit border-b border-white/5 pb-2">Transaction Details</h3>
 
             <div className="flex flex-col gap-6">
-              {/* Header Amount */}
               <div className="flex justify-between items-center bg-slate-950/40 p-4 rounded-xl border border-white/5">
                 <div>
                   <span className="text-xs text-slate-400 block font-bold uppercase tracking-wider text-outfit">Amount</span>
                   <span className={`text-2xl font-extrabold text-outfit ${selectedItem.amount > 0 ? 'text-emerald-400' : 'text-white'}`}>
-                    {selectedItem.amount > 0 ? `+$${selectedItem.amount}` : `-$${Math.abs(selectedItem.amount)}`}
+                    {selectedItem.amount > 0 ? `+$${selectedItem.amount.toLocaleString()}` : `-$${Math.abs(selectedItem.amount).toLocaleString()}`}
                   </span>
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-slate-400 block font-bold uppercase tracking-wider text-outfit">Date</span>
-                  <span className="text-sm font-semibold text-slate-300">{selectedItem.date}</span>
+                  <span className="text-sm font-semibold text-slate-300">{selectedItem.transaction_date}</span>
                 </div>
               </div>
 
-              {/* Transaction Specs */}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Description</span>
                   <span className="text-white font-semibold">{selectedItem.description}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Account Channel</span>
-                  <span className="text-slate-300 font-mono text-xs">{selectedItem.account}</span>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Source</span>
+                  <span className="text-slate-300 text-xs capitalize">{selectedItem.source}</span>
                 </div>
-                {selectedItem.merchantType && (
+                {selectedItem.payment_method && (
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Merchant Type</span>
-                    <span className="text-slate-300 text-xs">{selectedItem.merchantType}</span>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Payment Method</span>
+                    <span className="text-slate-300 text-xs">{selectedItem.payment_method}</span>
                   </div>
                 )}
-                {selectedItem.method && (
-                  <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Method</span>
-                    <span className="text-slate-300 text-xs">{selectedItem.method}</span>
-                  </div>
-                )}
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Class</span>
+                  <span className="text-slate-300 text-xs">
+                    {selectedItem.account_class === 'real_estate' ? 'Real estate' : 'Personal'}
+                  </span>
+                </div>
               </div>
 
-              {/* Editable Category and Memo */}
               <div className="flex flex-col gap-4 border-t border-white/5 pt-4">
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Category Classification</span>
-                  <select 
-                    value={selectedItem.category} 
-                    onChange={(e) => {
-                      const cat = e.target.value;
-                      setLedger(prev => prev.map(item => item.id === selectedItem.id ? { ...item, category: cat } : item));
-                      setSelectedItem(prev => prev ? { ...prev, category: cat } : null);
-                    }}
+                  <select
+                    value={selectedItem.category}
+                    onChange={(e) => handleChangeCategory(e.target.value)}
                     className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-indigo-400 focus:outline-none focus:border-indigo-500 w-full"
                   >
-                    <option value="Rent Received">Rent Received (Real Estate)</option>
-                    <option value="Repairs">Repairs (Real Estate)</option>
-                    <option value="Supplies">Supplies (Real Estate)</option>
-                    <option value="Taxes">Taxes (Real Estate)</option>
-                    <option value="Utilities">Utilities (Real Estate)</option>
-                    <option value="Health & Wellness">Health & Wellness (Personal)</option>
-                    <option value="Food & Dining">Food & Dining (Personal)</option>
-                    <option value="Travel">Travel (Personal)</option>
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
 
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Memo Notes</span>
-                  <textarea 
+                  <textarea
                     value={memoInput}
                     onChange={(e) => setMemoInput(e.target.value)}
                     placeholder="Type memo details and save..."
-                    className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 w-full h-20 placeholder-slate-650 resize-none"
+                    className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 w-full h-20 resize-none"
                   />
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-[10px] text-slate-500 font-medium">200 characters limit</span>
-                    <button 
+                  <div className="flex justify-end items-center mt-2">
+                    <button
                       onClick={handleSaveMemo}
                       className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg text-white font-bold transition-all"
                     >
@@ -312,17 +244,13 @@ export const Ledger = () => {
                 </div>
               </div>
 
-              {/* Mutating Action Buttons */}
               <div className="flex justify-between items-center border-t border-white/5 pt-4">
-                <button 
-                  onClick={() => setSelectedItem(null)}
-                  className="text-xs text-slate-400 hover:text-slate-200 font-semibold"
-                >
+                <button onClick={() => setSelectedItem(null)} className="text-xs text-slate-400 hover:text-slate-200 font-semibold">
                   Close Details
                 </button>
                 {!selectedItem.reviewed && (
-                  <button 
-                    onClick={() => handleApprove(selectedItem.id)}
+                  <button
+                    onClick={handleApprove}
                     className="bg-emerald-600 hover:bg-emerald-700 text-xs font-bold text-white px-4 py-2 rounded-lg shadow-md shadow-emerald-600/10 transition-all"
                   >
                     Approve Match
@@ -330,6 +258,81 @@ export const Ledger = () => {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Expense Modal */}
+      {isAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 flex flex-col gap-5">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white text-outfit">Add Expense</h2>
+              <button onClick={() => setIsAddOpen(false)} className="text-slate-400 hover:text-white font-bold text-xl">&times;</button>
+            </div>
+            <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Description</label>
+                <input
+                  value={addForm.description}
+                  onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+                  required
+                  placeholder="e.g. Plumbing repair"
+                  className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Amount ($)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={addForm.amount}
+                    onChange={(e) => setAddForm({ ...addForm, amount: e.target.value })}
+                    required
+                    placeholder="85.00"
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Date</label>
+                  <input
+                    type="date"
+                    value={addForm.transaction_date}
+                    onChange={(e) => setAddForm({ ...addForm, transaction_date: e.target.value })}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Category</label>
+                  <select
+                    value={addForm.category}
+                    onChange={(e) => setAddForm({ ...addForm, category: e.target.value })}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Class</label>
+                  <select
+                    value={addForm.account_class}
+                    onChange={(e) => setAddForm({ ...addForm, account_class: e.target.value as 'real_estate' | 'personal' })}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="real_estate">Real estate</option>
+                    <option value="personal">Personal</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 justify-end mt-2">
+                <button type="button" onClick={() => setIsAddOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 font-semibold text-sm hover:bg-white/5 text-outfit">Cancel</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white text-sm shadow-lg shadow-indigo-500/20 hover:scale-[1.02] transition-all text-outfit">Add Expense</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

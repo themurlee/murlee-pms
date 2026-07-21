@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { invalidateDashboardCache } = require('../lib/cache');
 
 /**
  * Atomically updates invoice status in database using its transfer_id identifier
@@ -28,6 +29,7 @@ async function updateInvoiceStatus(transferId, newStatus) {
     );
 
     await client.query('COMMIT');
+    invalidateDashboardCache();
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

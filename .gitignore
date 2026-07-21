@@ -120,3 +120,7 @@ dist
 *.sln
 *.sw?
 .DS_Store
+
+# Local agent tooling (not part of the product)
+.claude/
+/skills/
