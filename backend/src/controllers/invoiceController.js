@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const { invalidateDashboardCache } = require('../lib/cache');
+const { sendNotice } = require('../services/emailService');
+const transactionsService = require('../services/transactionsService');
 
 // Helper to determine invoice state
 const getInvoiceState = (invoice) => {
@@ -119,7 +122,7 @@ async function markPaid(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const invoiceRes = await client.query('SELECT status FROM invoices WHERE id = $1 FOR UPDATE', [id]);
     if (invoiceRes.rows.length === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -130,7 +133,46 @@ async function markPaid(req, res) {
       [id]
     );
 
+    // Gather tenant + owner context for the confirmation email before committing.
+    const ctx = await client.query(
+      `SELECT i.amount_due, t.id AS tenant_id, t.name AS tenant_name, t.email AS tenant_email,
+              p.owner_id, u.property_id, p.entity_id
+       FROM invoices i
+       JOIN leases l ON i.lease_id = l.id
+       JOIN tenants t ON l.tenant_id = t.id
+       JOIN units u ON l.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
+       WHERE i.id = $1`,
+      [id]
+    );
+
+    // Post the rent income into the ledger inside the same transaction (idempotent).
+    const paidCtx = ctx.rows[0];
+    if (paidCtx) {
+      await transactionsService.insertRentReceived(client, {
+        ownerId: paidCtx.owner_id,
+        invoiceId: id,
+        propertyId: paidCtx.property_id,
+        entityId: paidCtx.entity_id,
+        amount: parseFloat(paidCtx.amount_due),
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: req.body.payment_method || null,
+      });
+    }
+
     await client.query('COMMIT');
+    invalidateDashboardCache();
+
+    // Fire-and-forget: a failed email must not fail the payment.
+    const c = ctx.rows[0];
+    if (c) {
+      sendNotice({
+        ownerId: c.owner_id, tenantId: c.tenant_id, invoiceId: id, type: 'payment_confirmation',
+        to: c.tenant_email, subject: 'Payment received — thank you',
+        html: `<p>Hi ${c.tenant_name},</p><p>We've recorded your rent payment of <strong>$${Number(c.amount_due).toFixed(2)}</strong>. Thank you!</p><p>Murlee PMS</p>`,
+      }).catch((e) => console.error('Payment confirmation email failed:', e.message));
+    }
+
     res.json({ message: 'Invoice marked as paid successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -153,6 +195,7 @@ async function deleteInvoice(req, res) {
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
+    invalidateDashboardCache();
     res.json({ message: 'Invoice deleted successfully' });
   } catch (error) {
     console.error('Failed to delete invoice:', error);
