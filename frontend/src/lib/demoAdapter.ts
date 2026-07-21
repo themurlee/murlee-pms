@@ -30,27 +30,40 @@ let properties: any[] = [
 ];
 
 let units: any[] = [
-  { id: 'u1', unit_number: '101', beds: 2, baths: 1, sq_ft: 900, market_rent: 1400, property_id: 'p1', property_name: 'Oakridge Manor', tenant_id: 't1', tenant_name: 'Jane Doe', tenant_email: 'jane@example.com' },
-  { id: 'u2', unit_number: '102', beds: 2, baths: 1, sq_ft: 950, market_rent: 1500, property_id: 'p1', property_name: 'Oakridge Manor', tenant_id: 't3', tenant_name: 'Alice Cooper', tenant_email: 'alice@example.com' },
-  { id: 'u3', unit_number: '4', beds: 1, baths: 1, sq_ft: 700, market_rent: 1350, property_id: 'p2', property_name: 'Pacific Breeze', tenant_id: 't2', tenant_name: 'John Smith', tenant_email: 'john@example.com' },
-  { id: 'u4', unit_number: '12', beds: 2, baths: 2, sq_ft: 1100, market_rent: 1600, property_id: 'p2', property_name: 'Pacific Breeze', tenant_id: null, tenant_name: null, tenant_email: null },
+  { id: 'u1', unit_number: '101', beds: 2, baths: 1, sq_ft: 900, market_rent: 1400, property_id: 'p1', property_name: 'Oakridge Manor', tenant_id: 't1', tenant_name: 'Jane Doe', tenant_email: 'jane@example.com', rent: 1400, lease_start: '2026-01-01', lease_end: '2026-12-31', balance_due: 1400 },
+  { id: 'u2', unit_number: '102', beds: 2, baths: 1, sq_ft: 950, market_rent: 1500, property_id: 'p1', property_name: 'Oakridge Manor', tenant_id: 't3', tenant_name: 'Alice Cooper', tenant_email: 'alice@example.com', rent: 1500, lease_start: '2026-03-01', lease_end: '2027-02-28', balance_due: 0 },
+  { id: 'u3', unit_number: '4', beds: 1, baths: 1, sq_ft: 700, market_rent: 1350, property_id: 'p2', property_name: 'Pacific Breeze', tenant_id: 't2', tenant_name: 'John Smith', tenant_email: 'john@example.com', rent: 1350, lease_start: '2025-02-15', lease_end: '2027-02-14', balance_due: 0 },
+  { id: 'u4', unit_number: '12', beds: 2, baths: 2, sq_ft: 1100, market_rent: 1600, property_id: 'p2', property_name: 'Pacific Breeze', tenant_id: 't4', tenant_name: 'Bob Marley', tenant_email: 'bob@example.com', rent: 1600, lease_start: '2026-02-01', lease_end: '2027-01-31', balance_due: 400 },
 ];
 
 let tenants: any[] = [
-  { id: 't1', name: 'Jane Doe', email: 'jane@example.com', phone: '555-0199', unit: 'Oakridge #101', rent: 1400, delinquency_notes: '34 days late on July rent', eviction_notes: '', housing_authority: 'Fulton County HA', payment_plan: 'None', documents: ['lease-jane-doe.pdf'] },
-  { id: 't2', name: 'John Smith', email: 'john@example.com', phone: '555-0144', unit: 'Pacific #4', rent: 1350, delinquency_notes: '', eviction_notes: '', housing_authority: 'None', payment_plan: 'None', documents: [] },
-  { id: 't3', name: 'Alice Cooper', email: 'alice@example.com', phone: '', unit: 'Oakridge #102', rent: 1500, delinquency_notes: '', eviction_notes: '', housing_authority: 'None', payment_plan: 'None', documents: [] },
-  { id: 't4', name: 'Bob Marley', email: 'bob@example.com', phone: '', unit: 'Pacific #12', rent: 1600, delinquency_notes: 'Missed payment-plan installment', eviction_notes: '', housing_authority: 'None', payment_plan: '$800 on 7/25', documents: [] },
+  { id: 't1', name: 'Jane Doe', email: 'jane@example.com', phone: '555-0199', lease_id: 'L-101', unit_id: 'u1', property_id: 'p1', unit: 'Oakridge #101', rent: 1400, due_day: 1, start_date: '2026-01-01', end_date: '2026-12-31', delinquency_notes: '34 days late on July rent', eviction_notes: '', housing_authority: 'Fulton County HA', payment_plan: 'None', documents: ['lease-jane-doe.pdf'] },
+  { id: 't2', name: 'John Smith', email: 'john@example.com', phone: '555-0144', lease_id: 'L-102', unit_id: 'u3', property_id: 'p2', unit: 'Pacific #4', rent: 1350, due_day: 1, start_date: '2025-02-15', end_date: '2027-02-14', delinquency_notes: '', eviction_notes: '', housing_authority: 'None', payment_plan: 'None', documents: [] },
+  { id: 't3', name: 'Alice Cooper', email: 'alice@example.com', phone: '', lease_id: 'L-103', unit_id: 'u2', property_id: 'p1', unit: 'Oakridge #102', rent: 1500, due_day: 1, start_date: '2026-03-01', end_date: '2027-02-28', delinquency_notes: '', eviction_notes: '', housing_authority: 'None', payment_plan: 'None', documents: [] },
+  { id: 't4', name: 'Bob Marley', email: 'bob@example.com', phone: '', lease_id: 'L-104', unit_id: 'u4', property_id: 'p2', unit: 'Pacific #12', rent: 1600, due_day: 1, start_date: '2026-02-01', end_date: '2027-01-31', delinquency_notes: 'Missed payment-plan installment', eviction_notes: '', housing_authority: 'None', payment_plan: '$800 on 7/25', documents: [] },
 ];
 
-const inv = (id: string, lease: string, due: string, amount: number, lateFee: number, status: string, method: string): any => ({
-  id, lease_id: lease, due_date: due, amount_due: amount, late_fee: lateFee, status,
-  transfer_id: `tx_${id}`, created_at: nowIso(),
-  actions: { can_mark_as_paid: status !== 'paid', can_edit: status !== 'paid', can_delete: status !== 'paid' },
-  active_view: 'payment_timeline',
-  timeline: [{ timestamp: nowIso(), event: 'Invoice created', description: 'Monthly rent invoice generated from lease terms.' }],
-  breakdown: { base_rent: amount - lateFee, late_fee: lateFee, total_due: amount, payment_method: method },
-});
+const INVOICE_LEASE_CONTEXT: Record<string, { property: string; tenant: string; unit: string; start: string; end: string }> = {
+  'L-101': { property: 'Oakridge Manor', tenant: 'Jane Doe', unit: '101', start: '2026-01-01', end: '2026-12-31' },
+  'L-102': { property: 'Pacific Breeze', tenant: 'John Smith', unit: '4', start: '2025-02-15', end: '2027-02-14' },
+  'L-103': { property: 'Oakridge Manor', tenant: 'Alice Cooper', unit: '102', start: '2026-03-01', end: '2027-02-28' },
+};
+
+const inv = (id: string, lease: string, due: string, amount: number, lateFee: number, status: string, method: string): any => {
+  const ctx = INVOICE_LEASE_CONTEXT[lease];
+  const itemsTotal = 0;
+  return {
+    id, lease_id: lease, due_date: due, amount_due: amount, late_fee: lateFee, status,
+    transfer_id: `tx_${id}`, created_at: nowIso(), paid_at: status === 'paid' ? nowIso() : null,
+    property_nickname: ctx?.property, tenant_name: ctx?.tenant, unit_number: ctx?.unit,
+    lease_start: ctx?.start, lease_end: ctx?.end, lease_status: 'active',
+    actions: { can_mark_as_paid: status !== 'paid', can_edit: status !== 'paid', can_delete: status !== 'paid' },
+    active_view: 'payment_timeline',
+    timeline: [{ timestamp: nowIso(), event: 'Invoice created', description: 'Monthly rent invoice generated from lease terms.' }],
+    items: [] as { id: string; description: string; amount: number }[],
+    breakdown: { base_rent: amount - lateFee, late_fee: lateFee, items_total: itemsTotal, total_due: amount + itemsTotal, payment_method: method },
+  };
+};
 let invoices: any[] = [
   inv('INV-001', 'L-101', '2026-07-01', 1400, 0, 'overdue', 'Check'),
   inv('INV-002', 'L-102', '2026-07-01', 1350, 0, 'paid', 'ACH'),
@@ -157,10 +170,35 @@ export const demoAdapter = async (config: any): Promise<any> => {
   if (method === 'get' && url === '/invoices') return res(invoices);
   if (method === 'post' && /^\/invoices\/[^/]+\/mark-paid$/.test(url)) {
     const id = url.split('/')[2];
-    invoices = invoices.map((i) => (i.id === id ? { ...i, status: 'paid', actions: { can_mark_as_paid: false, can_edit: false, can_delete: false } } : i));
+    invoices = invoices.map((i) => (i.id === id
+      ? { ...i, status: 'paid', paid_at: nowIso(), actions: { can_mark_as_paid: false, can_edit: false, can_delete: false } }
+      : i));
     return res({ message: 'Invoice marked as paid' });
   }
-  if (method === 'delete' && url.startsWith('/invoices/')) {
+  if (method === 'post' && /^\/invoices\/[^/]+\/items$/.test(url)) {
+    const id = url.split('/')[2];
+    const item = { id: uid(), description: body.description, amount: Number(body.amount) };
+    invoices = invoices.map((i) => {
+      if (i.id !== id) return i;
+      const items = [...i.items, item];
+      const itemsTotal = items.reduce((sum: number, it: { amount: number }) => sum + it.amount, 0);
+      return { ...i, items, breakdown: { ...i.breakdown, items_total: itemsTotal, total_due: i.amount_due + i.late_fee + itemsTotal } };
+    });
+    return res(item, 201);
+  }
+  if (method === 'delete' && /^\/invoices\/[^/]+\/items\/[^/]+$/.test(url)) {
+    const parts = url.split('/');
+    const id = parts[2];
+    const itemId = parts[4];
+    invoices = invoices.map((i) => {
+      if (i.id !== id) return i;
+      const items = i.items.filter((it: { id: string }) => it.id !== itemId);
+      const itemsTotal = items.reduce((sum: number, it: { amount: number }) => sum + it.amount, 0);
+      return { ...i, items, breakdown: { ...i.breakdown, items_total: itemsTotal, total_due: i.amount_due + i.late_fee + itemsTotal } };
+    });
+    return res({ message: 'Invoice item deleted' });
+  }
+  if (method === 'delete' && /^\/invoices\/[^/]+$/.test(url)) {
     const id = seg('/invoices/'); invoices = invoices.filter((i) => i.id !== id); return res({ message: 'deleted' });
   }
 
