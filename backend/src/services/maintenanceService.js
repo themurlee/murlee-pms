@@ -209,10 +209,27 @@ async function updateTicketStatus(id, status) {
   return ctx.rows[0] || { issue_description: updated.rows[0].issue_description };
 }
 
+const MAINTENANCE_KEYWORDS = [
+  'leak', 'broken', 'repair', 'fix', 'plumbing', 'electrical', 'hvac', 'heater',
+  'ac unit', 'air condition', 'appliance', 'maintenance', 'mold', 'pest', 'clog',
+  'damage', 'not working', "won't turn on", 'malfunction',
+];
+
+/**
+ * Heuristic used to decide whether an inbound email/message reads as a
+ * maintenance request, so it can also open a ticket (in addition to landing
+ * as a Communications thread). Simple keyword match — no ML classifier.
+ */
+function looksLikeMaintenanceRequest(subject, body) {
+  const text = `${subject || ''} ${body || ''}`.toLowerCase();
+  return MAINTENANCE_KEYWORDS.some((keyword) => text.includes(keyword));
+}
+
 module.exports = {
   parseIncomingRequest,
   listTickets,
   createManualTicket,
   createTicketFromInbound,
   updateTicketStatus,
+  looksLikeMaintenanceRequest,
 };

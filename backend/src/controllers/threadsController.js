@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const threadsService = require('../services/threadsService');
+const { looksLikeMaintenanceRequest, createTicketFromInbound } = require('../services/maintenanceService');
 
 const nowIso = () => new Date().toISOString();
 let mockThreads = [
@@ -108,16 +109,25 @@ async function postSimulateInbound(req, res) {
     return res.status(400).json({ error: 'from_email and body are required' });
   }
 
+  const flaggedAsMaintenance = looksLikeMaintenanceRequest(subject, body);
+
   if (!process.env.DATABASE_URL) {
     const thread = { id: `T-${Date.now()}`, tenant_id: null, tenant_name: from_name || from_email, subject: subject || '(no subject)', last_message_preview: body.slice(0, 280), last_message_at: nowIso(), unread: true };
     mockThreads = [thread, ...mockThreads];
     mockMessages[thread.id] = [{ id: `M-${Date.now()}`, thread_id: thread.id, direction: 'inbound', body, created_at: nowIso() }];
-    return res.status(201).json({ threadId: thread.id, matchedBy: 'none' });
+    return res.status(201).json({ threadId: thread.id, matchedBy: 'none', maintenanceTicketCreated: flaggedAsMaintenance });
   }
 
   try {
     const result = await threadsService.matchInboundMessage(pool, { ownerId: req.user.id, fromEmail: from_email, fromName: from_name, subject, body });
-    res.status(201).json(result);
+
+    let maintenanceTicketId = null;
+    if (flaggedAsMaintenance) {
+      const ticketResult = await createTicketFromInbound({ fromEmail: from_email, fromName: from_name, subject, body });
+      maintenanceTicketId = ticketResult.ticketId;
+    }
+
+    res.status(201).json({ ...result, maintenanceTicketId });
   } catch (error) {
     console.error('Failed to simulate inbound message:', error);
     res.status(500).json({ error: 'Internal Server Error' });
