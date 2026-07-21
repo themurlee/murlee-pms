@@ -16,6 +16,7 @@ const maintenanceRoutes = require('./routes/maintenance');
 const dashboardRoutes = require('./routes/dashboard');
 const entitiesRoutes = require('./routes/entities');
 const noticesRoutes = require('./routes/notices');
+const threadsRoutes = require('./routes/threads');
 const billingRoutes = require('./routes/billing');
 const transactionsRoutes = require('./routes/transactions');
 
@@ -33,6 +34,7 @@ app.use('/api/maintenance', requireAuth, maintenanceRoutes);
 app.use('/api/dashboard', requireAuth, dashboardRoutes);
 app.use('/api/entities', requireAuth, entitiesRoutes);
 app.use('/api/notices', requireAuth, noticesRoutes);
+app.use('/api/threads', requireAuth, threadsRoutes);
 app.use('/api/billing', requireAuth, billingRoutes);
 app.use('/api/transactions', requireAuth, transactionsRoutes);
 
