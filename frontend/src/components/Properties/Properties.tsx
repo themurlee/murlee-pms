@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { useProperties, Property, UnitInput } from '../../hooks/useProperties';
 import { useEntities } from '../../hooks/useEntities';
+import { Entities } from '../Entities/Entities';
 
 const PROPERTY_TYPES = ['Single-Family', 'Multi-Family', 'Condo', 'Townhouse', 'Apartment', 'Commercial'];
 const emptyAddr = { street: '', city: '', state: '', zip: '' };
 const blankUnit = (): UnitInput => ({ unit_number: '', beds: undefined, baths: undefined, sq_ft: undefined, market_rent: undefined });
 
-export const Properties = () => {
+interface PropertiesProps {
+  userRole?: 'landlord' | 'tenant';
+}
+
+export const Properties = ({ userRole = 'landlord' }: PropertiesProps) => {
+  const [view, setView] = useState<'properties' | 'entities'>('properties');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   const { properties, createProperty, updateProperty, deleteProperty } = useProperties();
@@ -149,6 +155,31 @@ export const Properties = () => {
 
   return (
     <div className="flex flex-col gap-6">
+      {userRole === 'landlord' && (
+        <div className="flex gap-2 bg-slate-900/50 p-1.5 rounded-xl border border-white/5 w-fit">
+          <button
+            onClick={() => setView('properties')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-outfit ${
+              view === 'properties' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Properties
+          </button>
+          <button
+            onClick={() => setView('entities')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-outfit ${
+              view === 'entities' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Entities
+          </button>
+        </div>
+      )}
+
+      {view === 'entities' && <Entities />}
+
+      {view === 'properties' && (
+      <>
       {!selectedPropertyId ? (
         <>
           <div className="flex justify-between items-center">
@@ -400,6 +431,8 @@ export const Properties = () => {
         </div>
         );
       })()}
+      </>
+      )}
     </div>
   );
 };
