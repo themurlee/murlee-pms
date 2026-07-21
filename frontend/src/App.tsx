@@ -13,14 +13,12 @@ const Reports = lazy(() => import('./components/Reports/Reports').then(m => ({ d
 const Tenants = lazy(() => import('./components/Tenants/Tenants').then(m => ({ default: m.Tenants })));
 const Ledger = lazy(() => import('./components/Transactions/Ledger').then(m => ({ default: m.Ledger })));
 const Communications = lazy(() => import('./components/Communications/Communications').then(m => ({ default: m.Communications })));
-const Entities = lazy(() => import('./components/Entities/Entities').then(m => ({ default: m.Entities })));
 
-type TabType = 'dashboard' | 'properties' | 'tenants' | 'entities' | 'maintenance' | 'communications' | 'reports' | 'rent_collection' | 'transactions';
+type TabType = 'dashboard' | 'properties' | 'tenants' | 'maintenance' | 'communications' | 'reports' | 'rent_collection' | 'transactions';
 
 const NAV_ITEMS: { tab: TabType; label: string; landlordOnly?: boolean }[] = [
   { tab: 'dashboard', label: 'Dashboard' },
   { tab: 'properties', label: 'Properties' },
-  { tab: 'entities', label: 'Entities', landlordOnly: true },
   { tab: 'tenants', label: 'Tenants' },
   { tab: 'maintenance', label: 'Maintenance' },
   { tab: 'communications', label: 'Communications', landlordOnly: true },
@@ -60,7 +58,7 @@ function Shell() {
 
   const handleRoleChange = (role: 'landlord' | 'tenant') => {
     setUserRole(role);
-    if (role === 'tenant' && ['reports', 'transactions', 'entities', 'communications'].includes(activeTab)) {
+    if (role === 'tenant' && ['reports', 'transactions', 'communications'].includes(activeTab)) {
       setActiveTab('dashboard');
     }
   };
@@ -127,9 +125,8 @@ function Shell() {
 
           <Suspense fallback={<div className="text-slate-400 text-sm">Loading...</div>}>
             {activeTab === 'dashboard' && <Dashboard />}
-            {activeTab === 'properties' && <Properties />}
+            {activeTab === 'properties' && <Properties userRole={userRole} />}
             {activeTab === 'tenants' && <Tenants />}
-            {activeTab === 'entities' && <Entities />}
             {activeTab === 'maintenance' && <Maintenance />}
             {activeTab === 'communications' && <Communications />}
             {activeTab === 'reports' && <Reports />}
