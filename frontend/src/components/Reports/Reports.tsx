@@ -1,11 +1,34 @@
 import { useState } from 'react';
 import { RentRoll } from '../shared/RentRoll';
+import { useProperties } from '../../hooks/useProperties';
 
 type ReportTabType = 'cashflow' | 'schedule_e' | 'rent_roll' | 'delinquency';
 
+const PERIOD_OPTIONS = [
+  'This Calendar Year to Date',
+  'Last Calendar Year',
+  'This Fiscal Year to Date',
+  'Last Fiscal Year',
+  'Last 12 Months',
+  'Custom Range',
+];
+
+const GROUP_BY_OPTIONS = ['None', 'Month', 'Quarter', 'Property'];
+
+const toDateInput = (d: Date) => d.toISOString().slice(0, 10);
+
 export const Reports = () => {
+  const { properties } = useProperties();
   const [activeReportTab, setActiveReportTab] = useState<ReportTabType>('cashflow');
   const [showSubcategories, setShowSubcategories] = useState(true);
+
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [period, setPeriod] = useState(PERIOD_OPTIONS[0]);
+  const [fromDate, setFromDate] = useState(toDateInput(new Date(new Date().getFullYear(), 0, 1)));
+  const [toDate, setToDate] = useState(toDateInput(new Date()));
+  const [accountingMethod, setAccountingMethod] = useState<'Cash' | 'Accrual'>('Cash');
+  const [groupBy, setGroupBy] = useState(GROUP_BY_OPTIONS[0]);
+  const [propertyId, setPropertyId] = useState('all');
 
   // Cashflow report data
   const months = ['Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026'];
@@ -74,12 +97,85 @@ export const Reports = () => {
           <p className="text-slate-400 text-sm mt-1">Multi-dimensional operational ledger and IRS tax reporting statements</p>
         </div>
 
-        {/* Global statement controls */}
-        <div className="flex gap-2 bg-slate-900/50 p-1 rounded-xl border border-white/5 text-xs font-semibold text-outfit">
-          <button className="px-4 py-2 hover:bg-white/5 rounded-lg text-slate-400">All Properties</button>
-          <button className="px-4 py-2 hover:bg-white/5 rounded-lg text-slate-400">FY 2026</button>
-        </div>
       </div>
+
+      {/* Statement filter bar */}
+      {filtersOpen && (
+        <div className="glass-panel rounded-2xl p-4 flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1.5 min-w-[180px]">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">Period</span>
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              {PERIOD_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">From</span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">To</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5 min-w-[140px]">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">Accounting Method</span>
+            <select
+              value={accountingMethod}
+              onChange={(e) => setAccountingMethod(e.target.value as 'Cash' | 'Accrual')}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Accrual">Accrual</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5 min-w-[140px]">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">Property</span>
+            <select
+              value={propertyId}
+              onChange={(e) => setPropertyId(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="all">All Properties</option>
+              {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5 min-w-[140px]">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-outfit">Group By</span>
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              {GROUP_BY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <button
+        onClick={() => setFiltersOpen(p => !p)}
+        className="self-start text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors text-outfit flex items-center gap-1"
+      >
+        {filtersOpen ? '‹ Hide Filters' : 'Show Filters ›'}
+      </button>
 
       {/* Sub-tab Navigation */}
       <div className="flex border-b border-white/5 gap-6 text-outfit text-sm font-semibold">
