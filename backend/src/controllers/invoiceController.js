@@ -6,8 +6,9 @@ const transactionsService = require('../services/transactionsService');
 // Helper to determine invoice state
 const getInvoiceState = (invoice) => {
   const isPaid = invoice.status === 'paid';
-  const isOverdue = !isPaid && new Date() > new Date(invoice.due_date);
-  
+  const isSettling = invoice.status === 'processing'; // in-flight ACH transfer, not late
+  const isOverdue = !isPaid && !isSettling && new Date() > new Date(invoice.due_date);
+
   return {
     ...invoice,
     status: isOverdue ? 'overdue' : invoice.status,
@@ -34,6 +35,13 @@ async function getInvoices(req, res) {
           status: 'unpaid',
           transfer_id: 'tx_123',
           created_at: new Date().toISOString(),
+          paid_at: null,
+          property_nickname: 'Oakridge Manor',
+          tenant_name: 'Jane Doe',
+          unit_number: '101',
+          lease_start: '2026-01-01',
+          lease_end: '2026-12-31',
+          lease_status: 'active',
           actions: { can_mark_as_paid: true, can_edit: true, can_delete: true },
           active_view: 'payment_timeline',
           timeline: [
@@ -50,6 +58,13 @@ async function getInvoices(req, res) {
           status: 'overdue',
           transfer_id: 'tx_456',
           created_at: new Date().toISOString(),
+          paid_at: null,
+          property_nickname: 'Pacific Breeze',
+          tenant_name: 'John Smith',
+          unit_number: '4',
+          lease_start: '2025-02-15',
+          lease_end: '2027-02-14',
+          lease_status: 'active',
           actions: { can_mark_as_paid: true, can_edit: true, can_delete: true },
           active_view: 'payment_timeline',
           timeline: [
@@ -57,17 +72,43 @@ async function getInvoices(req, res) {
             { timestamp: new Date().toISOString(), event: 'Late fee applied', description: '$50 late penalty assessed.' }
           ],
           breakdown: { base_rent: 1350, late_fee: 50, total_due: 1400, payment_method: 'ACH - Plaid' }
+        },
+        {
+          id: 'INV-003',
+          lease_id: 'L-103',
+          due_date: '2026-07-01',
+          amount_due: 1500.00,
+          late_fee: 0.00,
+          status: 'processing',
+          transfer_id: 'tx_789',
+          created_at: new Date().toISOString(),
+          paid_at: null,
+          property_nickname: 'Oakridge Manor',
+          tenant_name: 'Alice Cooper',
+          unit_number: '102',
+          lease_start: '2026-03-01',
+          lease_end: '2027-02-28',
+          lease_status: 'active',
+          actions: { can_mark_as_paid: false, can_edit: false, can_delete: false },
+          active_view: 'payment_timeline',
+          timeline: [
+            { timestamp: new Date().toISOString(), event: 'Invoice created', description: 'Scheduled monthly rent invoice generated.' },
+            { timestamp: new Date().toISOString(), event: 'ACH transfer initiated', description: 'Plaid transfer submitted, awaiting bank clearance.' }
+          ],
+          breakdown: { base_rent: 1500, late_fee: 0, total_due: 1500, payment_method: 'ACH - Plaid' }
         }
       ];
       return res.json(mockInvoices);
     }
 
     const result = await pool.query(
-      `SELECT i.*, l.rent_amount, t.name as tenant_name, u.unit_number 
+      `SELECT i.*, l.rent_amount, l.start_date AS lease_start, l.end_date AS lease_end, l.status AS lease_status,
+              t.name as tenant_name, u.unit_number, p.nickname AS property_nickname
        FROM invoices i
        JOIN leases l ON i.lease_id = l.id
        JOIN tenants t ON l.tenant_id = t.id
        JOIN units u ON l.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
        ORDER BY i.due_date DESC`
     );
 
@@ -81,8 +122,13 @@ async function getInvoices(req, res) {
         status: row.status,
         transfer_id: row.transfer_id,
         created_at: row.created_at,
+        paid_at: row.paid_at,
         tenant_name: row.tenant_name,
         unit_number: row.unit_number,
+        property_nickname: row.property_nickname,
+        lease_start: row.lease_start instanceof Date ? row.lease_start.toISOString().split('T')[0] : row.lease_start,
+        lease_end: row.lease_end instanceof Date ? row.lease_end.toISOString().split('T')[0] : row.lease_end,
+        lease_status: row.lease_status,
         timeline: [
           { timestamp: row.created_at, event: 'Invoice created', description: 'Generated automatically from lease terms.' }
         ],
@@ -129,7 +175,7 @@ async function markPaid(req, res) {
     }
 
     await client.query(
-      "UPDATE invoices SET status = 'paid' WHERE id = $1",
+      "UPDATE invoices SET status = 'paid', paid_at = NOW() WHERE id = $1",
       [id]
     );
 

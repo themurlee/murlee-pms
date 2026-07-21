@@ -28,6 +28,13 @@ export interface Invoice {
   status: InvoiceStatus;
   transfer_id?: string;
   created_at: string;
+  paid_at: string | null;
+  tenant_name?: string;
+  unit_number?: string;
+  property_nickname?: string;
+  lease_start?: string;
+  lease_end?: string;
+  lease_status?: 'active' | 'expired' | 'eviction';
   actions: InvoiceActions;
   active_view: 'payment_timeline' | 'invoice_breakdown';
   timeline: TimelineEvent[];

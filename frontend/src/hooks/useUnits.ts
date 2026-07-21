@@ -13,6 +13,10 @@ export interface Unit {
   tenant_id: string | null;
   tenant_name: string | null;
   tenant_email: string | null;
+  rent: number | null;
+  lease_start: string | null;
+  lease_end: string | null;
+  balance_due: number | null;
 }
 
 export const useUnits = () => {

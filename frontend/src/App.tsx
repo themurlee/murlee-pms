@@ -20,8 +20,8 @@ type TabType = 'dashboard' | 'properties' | 'tenants' | 'entities' | 'maintenanc
 const NAV_ITEMS: { tab: TabType; label: string; landlordOnly?: boolean }[] = [
   { tab: 'dashboard', label: 'Dashboard' },
   { tab: 'properties', label: 'Properties' },
-  { tab: 'tenants', label: 'Tenants' },
   { tab: 'entities', label: 'Entities', landlordOnly: true },
+  { tab: 'tenants', label: 'Tenants' },
   { tab: 'maintenance', label: 'Maintenance' },
   { tab: 'communications', label: 'Communications', landlordOnly: true },
   { tab: 'reports', label: 'Reports', landlordOnly: true },

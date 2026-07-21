@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Invoice } from '../../types/invoice';
 import { TimelineView } from './TimelineView';
 import { BillingSettings } from './BillingSettings';
+import { RentRoll } from '../shared/RentRoll';
+import { TenantLedger } from '../shared/TenantLedger';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -10,7 +12,20 @@ interface InvoiceListProps {
   onDelete: (id: string) => void;
 }
 
+type LeaseTab = 'active' | 'expired' | 'archived';
+type View = 'ledger' | 'rent_roll' | 'tenant_ledger';
+
+const isThisMonth = (dateStr: string) => {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth();
+};
+
+const LEASE_TAB_STATUS: Record<LeaseTab, string> = { active: 'active', expired: 'expired', archived: 'eviction' };
+
 export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete }: InvoiceListProps) => {
+  const [view, setView] = useState<View>('ledger');
+  const [leaseTab, setLeaseTab] = useState<LeaseTab>('active');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   // Dynamic Notes Log for Invoices
@@ -96,27 +111,26 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
     setNewNote('');
   };
 
-  // Mock Tenant & Lease Detail lookup based on lease_id
-  const getMockTenantDetails = (leaseId: string) => {
-    if (leaseId === 'LEASE-101') {
-      return {
-        tenantName: 'Jane Doe',
-        email: 'jane@example.com',
-        phone: '555-0199',
-        property: 'Oakridge Manor #101',
-        term: '1 Year Lease (Active)',
-        signedDate: 'Jan 1, 2026'
-      };
-    }
+  // KPI buckets: Upcoming/Completed scoped to this month by due_date; Processing/Overdue all-time.
+  const kpis = useMemo(() => {
+    const bucket = (pred: (i: Invoice) => boolean) =>
+      invoices.filter(pred).reduce((acc, i) => ({ total: acc.total + i.amount_due + i.late_fee, count: acc.count + 1 }), { total: 0, count: 0 });
+
     return {
-      tenantName: 'John Smith',
-      email: 'john@example.com',
-      phone: '555-0144',
-      property: 'Pacific Breeze #4',
-      term: '2 Year Lease (Active)',
-      signedDate: 'Feb 15, 2025'
+      upcoming: bucket((i) => i.status === 'unpaid' && isThisMonth(i.due_date)),
+      processing: bucket((i) => i.status === 'processing'),
+      overdue: bucket((i) => i.status === 'overdue'),
+      completed: bucket((i) => i.status === 'paid' && isThisMonth(i.due_date)),
     };
-  };
+  }, [invoices]);
+
+  const visibleInvoices = useMemo(
+    () => invoices.filter((i) => (i.lease_status || 'active') === LEASE_TAB_STATUS[leaseTab]),
+    [invoices, leaseTab]
+  );
+
+  if (view === 'rent_roll') return <RentRoll onBack={() => setView('ledger')} />;
+  if (view === 'tenant_ledger') return <TenantLedger onBack={() => setView('ledger')} />;
 
   return (
     <div className="flex flex-col gap-6 relative">
@@ -128,6 +142,33 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
           <p className="text-slate-400 text-sm mt-1">Invoices auto-generate monthly; late fees apply after the grace period</p>
         </div>
         <BillingSettings />
+      </div>
+
+      {/* KPI cards + navigation to Rent Roll / Tenant Ledger */}
+      <div className="flex flex-col gap-3">
+        <div className="flex justify-end gap-5 text-xs font-bold">
+          <button onClick={() => setView('rent_roll')} className="text-indigo-400 hover:text-indigo-300 transition-all">📋 View rent roll</button>
+          <button onClick={() => setView('tenant_ledger')} className="text-indigo-400 hover:text-indigo-300 transition-all">📖 View tenant ledger</button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {([
+            { label: 'Upcoming', scope: 'This month', data: kpis.upcoming, color: 'text-slate-200', dot: 'bg-indigo-400' },
+            { label: 'Processing', scope: 'All time', data: kpis.processing, color: 'text-slate-200', dot: 'bg-blue-400' },
+            { label: 'Overdue', scope: 'All time', data: kpis.overdue, color: 'text-rose-400', dot: 'bg-rose-400' },
+            { label: 'Completed', scope: 'This month', data: kpis.completed, color: 'text-emerald-400', dot: 'bg-emerald-400' },
+          ] as const).map((k) => (
+            <div key={k.label} className="glass-card p-5 rounded-2xl flex flex-col gap-2">
+              <span className="inline-flex items-center gap-1.5 self-start text-[11px] font-bold text-slate-300 bg-white/5 border border-white/10 rounded-full px-2.5 py-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${k.dot}`} />{k.label}
+              </span>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">{k.scope}</span>
+              <div className="flex items-end justify-between">
+                <span className={`text-2xl font-extrabold text-outfit ${k.color}`}>${k.data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="text-xs text-slate-500">{k.data.count} invoice{k.data.count === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Premium Toast Notification Alert */}
@@ -160,12 +201,26 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
             </h2>
             <p className="text-slate-400 text-xs mt-0.5">Collect rental payments, Waive fees, and review tenant invoices</p>
           </div>
-          
+
+          {/* Lease status tabs */}
+          <div className="flex gap-6 px-6 pt-4 border-b border-white/5 text-sm font-semibold">
+            {(['active', 'expired', 'archived'] as LeaseTab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setLeaseTab(t)}
+                className={`pb-3 capitalize transition-colors ${leaseTab === t ? 'border-b-2 border-indigo-500 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
           <table className="min-w-full divide-y divide-white/5 text-left border-collapse">
             <thead className="bg-white/5">
               <tr>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Invoice ID</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Due Date</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Property Nickname</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Tenant</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Lease Duration</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Amount Details</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Arrangements</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-outfit">Status</th>
@@ -173,7 +228,10 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 bg-transparent">
-              {invoices.map(inv => {
+              {visibleInvoices.length === 0 && (
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-slate-500 text-sm">No {leaseTab} leases to show.</td></tr>
+              )}
+              {visibleInvoices.map(inv => {
                 const hasPaymentPlan = inv.id === 'INV-002';
                 const lateFeeWaived = inv.id === 'INV-001';
 
@@ -185,10 +243,13 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
                       selectedInvoice?.id === inv.id ? 'bg-indigo-500/5 border-l-2 border-indigo-500' : ''
                     }`}
                   >
-                    <td className="px-6 py-4 font-bold text-outfit text-indigo-400">
-                      {inv.id}
+                    <td className="px-6 py-4 font-bold text-outfit text-white text-sm">
+                      {inv.property_nickname || '—'}{inv.unit_number ? <span className="text-slate-500 font-normal"> · Unit {inv.unit_number}</span> : ''}
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-400">{inv.due_date}</td>
+                    <td className="px-6 py-4 text-sm text-slate-300 font-semibold">{inv.tenant_name || '—'}</td>
+                    <td className="px-6 py-4 text-xs text-slate-400 whitespace-nowrap">
+                      {inv.lease_start && inv.lease_end ? `${inv.lease_start} – ${inv.lease_end}` : '—'}
+                    </td>
                     <td className="px-6 py-4 text-sm">
                       <div className="font-extrabold text-white text-outfit">${inv.amount_due}</div>
                       {inv.late_fee > 0 && !lateFeeWaived && (
@@ -365,26 +426,26 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
             <div className="flex flex-col gap-3 border-b border-white/5 pb-4">
               <h4 className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Tenant & Lease File</h4>
               {(() => {
-                const det = getMockTenantDetails(selectedInvoice.lease_id);
                 return (
                   <div className="flex flex-col gap-2 text-xs bg-slate-950/40 p-3 rounded-xl border border-white/5">
                     <div>
                       <span className="text-slate-500 block">Tenant Name</span>
-                      <strong className="text-white text-sm">{det.tenantName}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Contact</span>
-                      <span className="text-slate-300 block">{det.email}</span>
-                      <span className="text-slate-400 block">{det.phone}</span>
+                      <strong className="text-white text-sm">{selectedInvoice.tenant_name || '—'}</strong>
                     </div>
                     <div className="grid grid-cols-2 gap-2 border-t border-white/5 pt-2 mt-1">
                       <div>
                         <span className="text-slate-500 block">Property / Unit</span>
-                        <strong className="text-slate-300">{det.property}</strong>
+                        <strong className="text-slate-300">
+                          {selectedInvoice.property_nickname || '—'}{selectedInvoice.unit_number ? ` #${selectedInvoice.unit_number}` : ''}
+                        </strong>
                       </div>
                       <div>
                         <span className="text-slate-500 block">Lease Term</span>
-                        <strong className="text-slate-300">{det.term}</strong>
+                        <strong className="text-slate-300">
+                          {selectedInvoice.lease_start && selectedInvoice.lease_end
+                            ? `${selectedInvoice.lease_start} – ${selectedInvoice.lease_end}`
+                            : '—'}
+                        </strong>
                       </div>
                     </div>
                   </div>
