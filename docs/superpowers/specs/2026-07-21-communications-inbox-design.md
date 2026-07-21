@@ -61,12 +61,20 @@ CREATE TABLE IF NOT EXISTS message_threads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
     tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
+    counterparty_email VARCHAR(255) NOT NULL,
     subject VARCHAR(255),
     last_message_preview VARCHAR(280),
     last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     unread BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+`counterparty_email` is set at thread-creation time (from the tenant's email, or the raw
+inbound sender when no tenant matches) so a reply always has a send-to address, even for
+the `tenant_id = NULL` unmatched-sender case below.
+
+```sql
 
 CREATE TABLE IF NOT EXISTS messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

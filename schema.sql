@@ -138,6 +138,30 @@ CREATE TABLE IF NOT EXISTS notices (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Two-way message threads (tenant <-> landlord). Separate from `notices`
+-- (a write-once outbound log) because these need bidirectional history and
+-- reply-threading, not a fixed `type` enum.
+CREATE TABLE IF NOT EXISTS message_threads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
+    counterparty_email VARCHAR(255) NOT NULL,
+    subject VARCHAR(255),
+    last_message_preview VARCHAR(280),
+    last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    unread BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    thread_id UUID REFERENCES message_threads(id) ON DELETE CASCADE,
+    direction VARCHAR(10) NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    body TEXT NOT NULL,
+    gmail_message_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes: every join/filter below is exercised by the invoice, dashboard, and
 -- CRUD/notice/billing endpoints. Base schema had zero non-PK indexes.
 CREATE INDEX IF NOT EXISTS idx_units_property_id ON units(property_id);
@@ -156,6 +180,9 @@ CREATE INDEX IF NOT EXISTS idx_maintenance_tickets_status ON maintenance_tickets
 CREATE INDEX IF NOT EXISTS idx_properties_owner_id ON properties(owner_id);
 CREATE INDEX IF NOT EXISTS idx_properties_entity_id ON properties(entity_id);
 CREATE INDEX IF NOT EXISTS idx_notices_owner_created ON notices(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_thread_created ON messages(thread_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_threads_owner_lastmsg ON message_threads(owner_id, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_gmail_message_id ON messages(gmail_message_id);
 
 -- ---------------------------------------------------------------------------
 -- Incremental columns for existing tables. CREATE TABLE IF NOT EXISTS above

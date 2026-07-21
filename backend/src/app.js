@@ -16,6 +16,7 @@ const maintenanceRoutes = require('./routes/maintenance');
 const dashboardRoutes = require('./routes/dashboard');
 const entitiesRoutes = require('./routes/entities');
 const noticesRoutes = require('./routes/notices');
+const threadsRoutes = require('./routes/threads');
 const billingRoutes = require('./routes/billing');
 const transactionsRoutes = require('./routes/transactions');
 
@@ -33,6 +34,7 @@ app.use('/api/maintenance', requireAuth, maintenanceRoutes);
 app.use('/api/dashboard', requireAuth, dashboardRoutes);
 app.use('/api/entities', requireAuth, entitiesRoutes);
 app.use('/api/notices', requireAuth, noticesRoutes);
+app.use('/api/threads', requireAuth, threadsRoutes);
 app.use('/api/billing', requireAuth, billingRoutes);
 app.use('/api/transactions', requireAuth, transactionsRoutes);
 
@@ -45,5 +47,15 @@ app.listen(port, () => {
   // Billing automation only makes sense against a real DB.
   if (process.env.DATABASE_URL) {
     require('./lib/scheduler').startScheduler();
+
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      const dbPool = require('./config/db');
+      dbPool.query('SELECT id FROM users ORDER BY created_at LIMIT 1')
+        .then((r) => {
+          const ownerId = r.rows[0]?.id;
+          if (ownerId) require('./lib/gmailPoller').startGmailPoller(dbPool, ownerId);
+        })
+        .catch((e) => console.error('Failed to resolve owner for Gmail poller:', e.message));
+    }
   }
 });
