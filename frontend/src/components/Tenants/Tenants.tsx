@@ -1,5 +1,13 @@
-import { memo, useCallback, useState } from 'react';
-import { useTenants, Tenant } from '../../hooks/useTenants';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { useTenants, Tenant, TenantInput } from '../../hooks/useTenants';
+import { useUnits } from '../../hooks/useUnits';
+
+const today = () => new Date().toISOString().split('T')[0];
+const oneYearFromToday = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
+};
 
 interface TenantRowProps {
   tenant: Tenant;
@@ -86,6 +94,7 @@ const TenantRow = memo(({ tenant: t, isSelected, onSelect, onEdit, onDelete }: T
 
 export const Tenants = () => {
   const { tenants, createTenant, updateTenant, deleteTenant } = useTenants();
+  const { units } = useUnits();
 
   // Selected Tenant for Sidebar Details
   const [selectedTenantDetails, setSelectedTenantDetails] = useState<Tenant | null>(null);
@@ -113,46 +122,57 @@ export const Tenants = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [unit, setUnit] = useState('');
+  const [propertyId, setPropertyId] = useState('');
+  const [unitId, setUnitId] = useState('');
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [rent, setRent] = useState(1000);
+  const [dueDay, setDueDay] = useState(1);
+  const [startDate, setStartDate] = useState(today());
+  const [endDate, setEndDate] = useState(oneYearFromToday());
   const [delinquencyNotes, setDelinquencyNotes] = useState('');
   const [evictionNotes, setEvictionNotes] = useState('');
   const [housingAuthority, setHousingAuthority] = useState('None');
   const [paymentPlan, setPaymentPlan] = useState('None');
   const [documents, setDocuments] = useState<string[]>([]);
 
+  const properties = useMemo(() => {
+    const seen = new Map<string, string>();
+    units.forEach(u => seen.set(u.property_id, u.property_name));
+    return Array.from(seen, ([id, name]) => ({ id, name }));
+  }, [units]);
+
+  // Vacant units, plus whichever unit the tenant being edited already occupies.
+  const selectableUnits = useMemo(
+    () => units.filter(u => u.property_id === propertyId && (!u.tenant_id || u.id === editingUnitId)),
+    [units, propertyId, editingUnitId]
+  );
+
+  const buildInput = (): TenantInput => ({
+    name, email, phone, unit_id: unitId, rent, due_day: dueDay,
+    start_date: startDate, end_date: endDate,
+    delinquency_notes: delinquencyNotes,
+    eviction_notes: evictionNotes,
+    housing_authority: housingAuthority,
+    payment_plan: paymentPlan,
+    documents,
+  });
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || !unit.trim()) return;
+    if (!name.trim() || !email.trim() || !unitId || !startDate || !endDate) return;
 
-    await createTenant({
-      name, email, phone, unit, rent,
-      delinquency_notes: delinquencyNotes,
-      eviction_notes: evictionNotes,
-      housing_authority: housingAuthority,
-      payment_plan: paymentPlan,
-      documents,
-    });
+    await createTenant(buildInput());
     resetForm();
     setIsAddOpen(false);
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || !unit.trim() || !selectedTenantId) return;
+    if (!name.trim() || !email.trim() || !unitId || !startDate || !endDate || !selectedTenantId) return;
 
-    const updated: Tenant = {
-      id: selectedTenantId,
-      name, email, phone, unit, rent,
-      delinquency_notes: delinquencyNotes,
-      eviction_notes: evictionNotes,
-      housing_authority: housingAuthority,
-      payment_plan: paymentPlan,
-      documents,
-    };
-    await updateTenant(updated);
+    await updateTenant({ id: selectedTenantId, ...buildInput() });
     if (selectedTenantDetails?.id === selectedTenantId) {
-      setSelectedTenantDetails(updated);
+      setSelectedTenantDetails({ ...selectedTenantDetails, ...buildInput(), id: selectedTenantId, unit_id: unitId, property_id: propertyId });
     }
 
     setIsEditOpen(false);
@@ -165,8 +185,13 @@ export const Tenants = () => {
     setName(t.name);
     setEmail(t.email);
     setPhone(t.phone);
-    setUnit(t.unit);
+    setPropertyId(t.property_id || '');
+    setUnitId(t.unit_id || '');
+    setEditingUnitId(t.unit_id || null);
     setRent(t.rent);
+    setDueDay(t.due_day || 1);
+    setStartDate(t.start_date || today());
+    setEndDate(t.end_date || oneYearFromToday());
     setDelinquencyNotes(t.delinquency_notes);
     setEvictionNotes(t.eviction_notes);
     setHousingAuthority(t.housing_authority);
@@ -177,9 +202,13 @@ export const Tenants = () => {
 
   const handleDeleteTenant = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Avoid selecting tenant row
-    if (confirm('Are you sure you want to remove this tenant record?')) {
+    if (!confirm('Are you sure you want to remove this tenant record?')) return;
+    try {
       await deleteTenant(id);
       setSelectedTenantDetails(prev => (prev?.id === id ? null : prev));
+    } catch (err) {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'Failed to delete tenant.');
     }
   }, [deleteTenant]);
 
@@ -211,8 +240,13 @@ export const Tenants = () => {
     setName('');
     setEmail('');
     setPhone('');
-    setUnit('');
+    setPropertyId('');
+    setUnitId('');
+    setEditingUnitId(null);
     setRent(1000);
+    setDueDay(1);
+    setStartDate(today());
+    setEndDate(oneYearFromToday());
     setDelinquencyNotes('');
     setEvictionNotes('');
     setHousingAuthority('None');
@@ -297,7 +331,11 @@ export const Tenants = () => {
                 </div>
                 <div>
                   <span className="text-slate-500 block">Lease Term</span>
-                  <strong className="text-white text-sm text-outfit">1 Year (Active)</strong>
+                  <strong className="text-white text-sm text-outfit">
+                    {selectedTenantDetails.start_date && selectedTenantDetails.end_date
+                      ? `${selectedTenantDetails.start_date} – ${selectedTenantDetails.end_date}`
+                      : '—'}
+                  </strong>
                 </div>
                 <div className="col-span-2 border-t border-white/5 pt-2 mt-1">
                   <span className="text-slate-500 block">Rental Assistance (Voucher)</span>
@@ -425,23 +463,75 @@ export const Tenants = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Unit Reference</label>
-                  <input 
-                    type="text" 
-                    value={unit}
-                    onChange={e => setUnit(e.target.value)}
-                    placeholder="Oakridge #101"
-                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition-colors"
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Property</label>
+                  <select
+                    value={propertyId}
+                    onChange={e => { setPropertyId(e.target.value); setUnitId(''); }}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  >
+                    <option value="">Select property…</option>
+                    {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Unit</label>
+                  <select
+                    value={unitId}
+                    onChange={e => setUnitId(e.target.value)}
+                    disabled={!propertyId}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-40"
+                    required
+                  >
+                    <option value="">{propertyId ? 'Select unit…' : 'Pick a property first'}</option>
+                    {selectableUnits.map(u => <option key={u.id} value={u.id}>#{u.unit_number}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Monthly Rent Amount ($)</label>
+                  <input
+                    type="number"
+                    value={rent}
+                    onChange={e => setRent(Number(e.target.value))}
+                    min={0}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
                     required
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Monthly Rent Amount ($)</label>
-                  <input 
-                    type="number" 
-                    value={rent}
-                    onChange={e => setRent(Number(e.target.value))}
-                    min={0}
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Rent Due Day</label>
+                  <input
+                    type="number"
+                    value={dueDay}
+                    onChange={e => setDueDay(Number(e.target.value))}
+                    min={1}
+                    max={31}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Lease Start</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => setStartDate(e.target.value)}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-slate-400 font-bold uppercase tracking-wider text-outfit">Lease End</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={e => setEndDate(e.target.value)}
                     className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
                     required
                   />

@@ -6,8 +6,30 @@ export interface Tenant {
   name: string;
   email: string;
   phone: string;
+  lease_id: string | null;
+  unit_id: string | null;
+  property_id: string | null;
   unit: string;
   rent: number;
+  due_day: number;
+  start_date: string;
+  end_date: string;
+  delinquency_notes: string;
+  eviction_notes: string;
+  housing_authority: string;
+  payment_plan: string;
+  documents?: string[];
+}
+
+export interface TenantInput {
+  name: string;
+  email: string;
+  phone: string;
+  unit_id: string;
+  rent: number;
+  due_day: number;
+  start_date: string;
+  end_date: string;
   delinquency_notes: string;
   eviction_notes: string;
   housing_authority: string;
@@ -27,15 +49,19 @@ export const useTenants = () => {
     staleTime: 60_000,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['tenants'] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['tenants'] });
+    queryClient.invalidateQueries({ queryKey: ['units'] });
+    queryClient.invalidateQueries({ queryKey: ['invoices'] });
+  };
 
   const createMutation = useMutation({
-    mutationFn: async (input: Omit<Tenant, 'id'>) => (await api.post('/tenants', input)).data,
+    mutationFn: async (input: TenantInput) => (await api.post('/tenants', input)).data,
     onSuccess: invalidate,
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...input }: Tenant) => (await api.put(`/tenants/${id}`, input)).data,
+    mutationFn: async ({ id, ...input }: TenantInput & { id: string }) => (await api.put(`/tenants/${id}`, input)).data,
     onSuccess: invalidate,
   });
 

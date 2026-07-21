@@ -146,4 +146,7 @@ module.exports = {
   runDailyCycle,
   loadSettings,
   DEFAULT_SETTINGS,
+  iso,
+  firstOfMonth,
+  dueDateFor,
 };
