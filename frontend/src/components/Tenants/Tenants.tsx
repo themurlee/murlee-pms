@@ -1,48 +1,91 @@
-import { useState } from 'react';
+import { memo, useCallback, useState } from 'react';
+import { useTenants, Tenant } from '../../hooks/useTenants';
 
-interface Tenant {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  unit: string;
-  rent: number;
-  delinquency_notes: string;
-  eviction_notes: string;
-  housing_authority: string;
-  payment_plan: string;
-  documents?: string[];
+interface TenantRowProps {
+  tenant: Tenant;
+  isSelected: boolean;
+  onSelect: (t: Tenant) => void;
+  onEdit: (t: Tenant, e: React.MouseEvent) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
 }
 
+// Memoized so selecting/editing one tenant doesn't re-render every other row.
+const TenantRow = memo(({ tenant: t, isSelected, onSelect, onEdit, onDelete }: TenantRowProps) => (
+  <tr
+    onClick={() => onSelect(t)}
+    className={`hover:bg-white/5 transition-all duration-150 align-top cursor-pointer ${
+      isSelected ? 'bg-indigo-500/5 border-l-2 border-indigo-500' : ''
+    }`}
+  >
+    <td className="px-6 py-4">
+      <div className="font-bold text-white text-outfit text-base">{t.name}</div>
+      {t.housing_authority !== 'None' && t.housing_authority !== '' && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20 mt-1">
+          {t.housing_authority}
+        </span>
+      )}
+    </td>
+    <td className="px-6 py-4 text-sm text-slate-300">
+      <div className="font-semibold text-slate-200">{t.unit}</div>
+      <div className="text-xs text-slate-500 mt-1">{t.email}</div>
+      <div className="text-xs text-slate-500">{t.phone}</div>
+    </td>
+    <td className="px-6 py-4 text-sm max-w-xs">
+      {t.delinquency_notes || t.eviction_notes || (t.payment_plan !== 'None' && t.payment_plan !== '') ? (
+        <div className="flex flex-col gap-2">
+          {t.delinquency_notes && (
+            <div>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Delinquency Notes</span>
+              <span className="text-xs text-amber-400 font-medium line-clamp-1">{t.delinquency_notes}</span>
+            </div>
+          )}
+          {t.eviction_notes && (
+            <div>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Eviction Notes</span>
+              <span className="text-xs text-rose-400 font-medium line-clamp-1">{t.eviction_notes}</span>
+            </div>
+          )}
+          {t.payment_plan !== 'None' && t.payment_plan !== '' && (
+            <div>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Payment Plan</span>
+              <span className="text-xs text-indigo-400 font-semibold line-clamp-1">{t.payment_plan}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <span className="text-slate-500 text-xs italic">No active notes or arrangements</span>
+      )}
+    </td>
+    <td className="px-6 py-4">
+      <div className="text-lg font-extrabold text-emerald-400 text-outfit">${t.rent}/mo</div>
+      <div className="text-[10px] text-slate-500 font-bold uppercase block mt-1">Status: Active</div>
+      {t.documents && t.documents.length > 0 && (
+        <span className="inline-flex items-center gap-1 text-[10px] text-indigo-400 font-bold uppercase tracking-wider mt-1">
+          📎 {t.documents.length} Docs
+        </span>
+      )}
+    </td>
+    <td className="px-6 py-4 text-right">
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={(e) => onEdit(t, e)}
+          className="px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-indigo-400 hover:bg-indigo-500/10 transition-all text-outfit"
+        >
+          Edit
+        </button>
+        <button
+          onClick={(e) => onDelete(t.id, e)}
+          className="px-3 py-1.5 rounded-lg border border-rose-500/25 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-all text-outfit"
+        >
+          Delete
+        </button>
+      </div>
+    </td>
+  </tr>
+));
+
 export const Tenants = () => {
-  const [tenants, setTenants] = useState<Tenant[]>([
-    { 
-      id: '1', 
-      name: 'Jane Doe', 
-      email: 'jane@example.com', 
-      phone: '555-0199', 
-      unit: 'Oakridge #101', 
-      rent: 1400,
-      delinquency_notes: 'Will pay $1000 on 10/11 and $966.75 on 10/25',
-      eviction_notes: 'Subject to approval, eviction warning issued.',
-      housing_authority: 'Fulton County HA',
-      payment_plan: '$1000 - 10/11, $966.75 - 10/25',
-      documents: ['Lease_Agreement_Jane_Doe.pdf', 'Guarantor_Agreement.pdf']
-    },
-    { 
-      id: '2', 
-      name: 'John Smith', 
-      email: 'john@example.com', 
-      phone: '555-0144', 
-      unit: 'Pacific #4', 
-      rent: 1350,
-      delinquency_notes: '',
-      eviction_notes: '',
-      housing_authority: 'None',
-      payment_plan: 'None',
-      documents: ['Lease_Agreement_John_Smith.pdf']
-    },
-  ]);
+  const { tenants, createTenant, updateTenant, deleteTenant } = useTenants();
 
   // Selected Tenant for Sidebar Details
   const [selectedTenantDetails, setSelectedTenantDetails] = useState<Tenant | null>(null);
@@ -78,67 +121,45 @@ export const Tenants = () => {
   const [paymentPlan, setPaymentPlan] = useState('None');
   const [documents, setDocuments] = useState<string[]>([]);
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !unit.trim()) return;
 
-    const newId = String(Date.now());
-    const newTenant: Tenant = {
-      id: newId,
-      name,
-      email,
-      phone,
-      unit,
-      rent,
+    await createTenant({
+      name, email, phone, unit, rent,
       delinquency_notes: delinquencyNotes,
       eviction_notes: evictionNotes,
       housing_authority: housingAuthority,
       payment_plan: paymentPlan,
-      documents
-    };
-
-    setTenants([...tenants, newTenant]);
-    setTenantNotes(prev => ({
-      ...prev,
-      [newId]: ['Tenant profile created.']
-    }));
+      documents,
+    });
     resetForm();
     setIsAddOpen(false);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !unit.trim() || !selectedTenantId) return;
 
-    setTenants(prev => prev.map(t => {
-      if (t.id === selectedTenantId) {
-        const updated = {
-          ...t,
-          name,
-          email,
-          phone,
-          unit,
-          rent,
-          delinquency_notes: delinquencyNotes,
-          eviction_notes: evictionNotes,
-          housing_authority: housingAuthority,
-          payment_plan: paymentPlan,
-          documents
-        };
-        // Sync open sidebar details if viewing the updated tenant
-        if (selectedTenantDetails?.id === t.id) {
-          setSelectedTenantDetails(updated);
-        }
-        return updated;
-      }
-      return t;
-    }));
+    const updated: Tenant = {
+      id: selectedTenantId,
+      name, email, phone, unit, rent,
+      delinquency_notes: delinquencyNotes,
+      eviction_notes: evictionNotes,
+      housing_authority: housingAuthority,
+      payment_plan: paymentPlan,
+      documents,
+    };
+    await updateTenant(updated);
+    if (selectedTenantDetails?.id === selectedTenantId) {
+      setSelectedTenantDetails(updated);
+    }
 
     setIsEditOpen(false);
     resetForm();
   };
 
-  const handleStartEdit = (t: Tenant, e: React.MouseEvent) => {
+  const handleStartEdit = useCallback((t: Tenant, e: React.MouseEvent) => {
     e.stopPropagation(); // Avoid selecting tenant row
     setSelectedTenantId(t.id);
     setName(t.name);
@@ -152,17 +173,15 @@ export const Tenants = () => {
     setPaymentPlan(t.payment_plan);
     setDocuments(t.documents || []);
     setIsEditOpen(true);
-  };
+  }, []);
 
-  const handleDeleteTenant = (id: string, e: React.MouseEvent) => {
+  const handleDeleteTenant = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Avoid selecting tenant row
     if (confirm('Are you sure you want to remove this tenant record?')) {
-      setTenants(prev => prev.filter(t => t.id !== id));
-      if (selectedTenantDetails?.id === id) {
-        setSelectedTenantDetails(null);
-      }
+      await deleteTenant(id);
+      setSelectedTenantDetails(prev => (prev?.id === id ? null : prev));
     }
-  };
+  }, [deleteTenant]);
 
   const handleAddNote = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,78 +256,14 @@ export const Tenants = () => {
             </thead>
             <tbody className="divide-y divide-white/5 bg-transparent">
               {tenants.map(t => (
-                <tr 
-                  key={t.id} 
-                  onClick={() => setSelectedTenantDetails(t)}
-                  className={`hover:bg-white/5 transition-all duration-150 align-top cursor-pointer ${
-                    selectedTenantDetails?.id === t.id ? 'bg-indigo-500/5 border-l-2 border-indigo-500' : ''
-                  }`}
-                >
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-white text-outfit text-base">{t.name}</div>
-                    {t.housing_authority !== 'None' && t.housing_authority !== '' && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20 mt-1">
-                        {t.housing_authority}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-300">
-                    <div className="font-semibold text-slate-200">{t.unit}</div>
-                    <div className="text-xs text-slate-500 mt-1">{t.email}</div>
-                    <div className="text-xs text-slate-500">{t.phone}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm max-w-xs">
-                    {t.delinquency_notes || t.eviction_notes || (t.payment_plan !== 'None' && t.payment_plan !== '') ? (
-                      <div className="flex flex-col gap-2">
-                        {t.delinquency_notes && (
-                          <div>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Delinquency Notes</span>
-                            <span className="text-xs text-amber-400 font-medium line-clamp-1">{t.delinquency_notes}</span>
-                          </div>
-                        )}
-                        {t.eviction_notes && (
-                          <div>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Eviction Notes</span>
-                            <span className="text-xs text-rose-400 font-medium line-clamp-1">{t.eviction_notes}</span>
-                          </div>
-                        )}
-                        {t.payment_plan !== 'None' && t.payment_plan !== '' && (
-                          <div>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Payment Plan</span>
-                            <span className="text-xs text-indigo-400 font-semibold line-clamp-1">{t.payment_plan}</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-500 text-xs italic">No active notes or arrangements</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-lg font-extrabold text-emerald-400 text-outfit">${t.rent}/mo</div>
-                    <div className="text-[10px] text-slate-500 font-bold uppercase block mt-1">Status: Active</div>
-                    {t.documents && t.documents.length > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-indigo-400 font-bold uppercase tracking-wider mt-1">
-                        📎 {t.documents.length} Docs
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={(e) => handleStartEdit(t, e)}
-                        className="px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-indigo-400 hover:bg-indigo-500/10 transition-all text-outfit"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteTenant(t.id, e)}
-                        className="px-3 py-1.5 rounded-lg border border-rose-500/25 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-all text-outfit"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <TenantRow
+                  key={t.id}
+                  tenant={t}
+                  isSelected={selectedTenantDetails?.id === t.id}
+                  onSelect={setSelectedTenantDetails}
+                  onEdit={handleStartEdit}
+                  onDelete={handleDeleteTenant}
+                />
               ))}
             </tbody>
           </table>

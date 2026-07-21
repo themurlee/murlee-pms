@@ -2,8 +2,13 @@ const { Pool } = require('pg');
 
 let pool;
 if (process.env.DATABASE_URL) {
+  const connectionString = process.env.DATABASE_URL;
+  // Neon (and most hosted Postgres) require SSL. Enable it whenever the
+  // connection targets a non-local host or explicitly asks for sslmode=require.
+  const needsSsl = /sslmode=require/.test(connectionString) || /neon\.tech/.test(connectionString);
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString,
+    ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
   });
 } else {
   console.warn('DATABASE_URL missing. Using mock database interface.');

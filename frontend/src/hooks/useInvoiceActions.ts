@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import { api } from '../lib/api';
 
 export const useInvoiceActions = () => {
   const queryClient = useQueryClient();
 
   const markAsPaidMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
-      const response = await axios.post(`/api/invoices/${invoiceId}/mark-paid`);
+      const response = await api.post(`/invoices/${invoiceId}/mark-paid`);
       return response.data;
     },
     onSuccess: () => {
@@ -16,7 +16,7 @@ export const useInvoiceActions = () => {
 
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
-      const response = await axios.delete(`/api/invoices/${invoiceId}`);
+      const response = await api.delete(`/invoices/${invoiceId}`);
       return response.data;
     },
     onSuccess: () => {
