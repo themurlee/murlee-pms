@@ -89,6 +89,20 @@ let notices: any[] = [
   { id: 'N3', type: 'rent_reminder', channel: 'email', to_email: 'alice@example.com', subject: 'Rent due in 3 days', status: 'sent', created_at: '2026-06-28T09:00:00Z', tenant_name: 'Alice Cooper' },
 ];
 
+let messageThreads: any[] = [
+  { id: 'TH1', tenant_id: 't1', tenant_name: 'Jane Doe', subject: 'Leak in bathroom', last_message_preview: "Hi, there's a leak in the bathroom. Can you send someone?", last_message_at: '2026-07-20T09:00:00Z', unread: true },
+  { id: 'TH2', tenant_id: 't2', tenant_name: 'John Smith', subject: 'Lease renewal', last_message_preview: 'Just checking on the renewal timeline.', last_message_at: '2026-07-18T15:00:00Z', unread: false },
+];
+let threadMessages: Record<string, any[]> = {
+  TH1: [
+    { id: 'M1', thread_id: 'TH1', direction: 'inbound', body: "Hi, there's a leak in the bathroom. Can you send someone?", created_at: '2026-07-20T09:00:00Z' },
+  ],
+  TH2: [
+    { id: 'M2', thread_id: 'TH2', direction: 'outbound', body: 'Hi John, just a heads up your lease renews in 6 weeks.', created_at: '2026-07-18T14:00:00Z' },
+    { id: 'M3', thread_id: 'TH2', direction: 'inbound', body: 'Just checking on the renewal timeline.', created_at: '2026-07-18T15:00:00Z' },
+  ],
+};
+
 let billingSettings: any = { late_fee_amount: 50, late_fee_grace_days: 5, reminder_days_before: 3, late_fee_enabled: true, reminders_enabled: true };
 
 const summary = { grossMonthlyIncome: 4250, totalUnits: 4, occupiedUnits: 3, overdueTotal: 2900, openMaintenanceCount: 2, rentCollectionRate: 0.66 };
@@ -249,6 +263,36 @@ export const demoAdapter = async (config: any): Promise<any> => {
       const n = { id: uid(), type: 'adhoc', channel: 'email', to_email: tenant?.email || '', subject: body.subject, status: 'sent', created_at: nowIso(), tenant_name: tenant?.name || 'Tenant' };
       notices = [n, ...notices]; return res(n, 201);
     }
+  }
+
+  // MESSAGE THREADS
+  if (url === '/threads') {
+    if (method === 'get') {
+      const list = params.filter === 'unread' ? messageThreads.filter((t) => t.unread) : messageThreads;
+      return res(list);
+    }
+    if (method === 'post') {
+      const tenant = tenants.find((t) => t.id === body.tenant_id);
+      const thread = { id: uid(), tenant_id: body.tenant_id, tenant_name: tenant?.name || 'Tenant', subject: body.subject, last_message_preview: String(body.body).slice(0, 280), last_message_at: nowIso(), unread: false };
+      messageThreads = [thread, ...messageThreads];
+      threadMessages[thread.id] = [{ id: uid(), thread_id: thread.id, direction: 'outbound', body: body.body, created_at: nowIso() }];
+      return res(thread, 201);
+    }
+  }
+  if (/^\/threads\/[^/]+\/messages$/.test(url)) {
+    const id = url.split('/')[2];
+    if (method === 'get') return res(threadMessages[id] || []);
+    if (method === 'post') {
+      const message = { id: uid(), thread_id: id, direction: 'outbound', body: body.body, created_at: nowIso() };
+      threadMessages[id] = [...(threadMessages[id] || []), message];
+      messageThreads = messageThreads.map((t) => (t.id === id ? { ...t, last_message_preview: String(body.body).slice(0, 280), last_message_at: nowIso() } : t));
+      return res(message, 201);
+    }
+  }
+  if (method === 'patch' && /^\/threads\/[^/]+$/.test(url)) {
+    const id = url.split('/')[2];
+    messageThreads = messageThreads.map((t) => (t.id === id ? { ...t, unread: false } : t));
+    return res({ message: 'updated' });
   }
 
   // BILLING
