@@ -47,5 +47,15 @@ app.listen(port, () => {
   // Billing automation only makes sense against a real DB.
   if (process.env.DATABASE_URL) {
     require('./lib/scheduler').startScheduler();
+
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      const dbPool = require('./config/db');
+      dbPool.query('SELECT id FROM users ORDER BY created_at LIMIT 1')
+        .then((r) => {
+          const ownerId = r.rows[0]?.id;
+          if (ownerId) require('./lib/gmailPoller').startGmailPoller(dbPool, ownerId);
+        })
+        .catch((e) => console.error('Failed to resolve owner for Gmail poller:', e.message));
+    }
   }
 });
