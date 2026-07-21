@@ -2,6 +2,14 @@ const pool = require('../config/db');
 const { invalidateDashboardCache } = require('../lib/cache');
 const { sendNotice } = require('../services/emailService');
 const transactionsService = require('../services/transactionsService');
+const invoiceService = require('../services/invoiceService');
+
+// Mock-mode only: real persistence lives in the invoice_items table.
+const mockInvoiceItems = {
+  'INV-001': [],
+  'INV-002': [{ id: 'item-1', description: 'Pet Fee', amount: 50 }],
+  'INV-003': [],
+};
 
 // Helper to determine invoice state
 const getInvoiceState = (invoice) => {
@@ -47,7 +55,8 @@ async function getInvoices(req, res) {
           timeline: [
             { timestamp: new Date().toISOString(), event: 'Invoice created', description: 'Scheduled monthly rent invoice generated.' }
           ],
-          breakdown: { base_rent: 1400, late_fee: 0, total_due: 1400, payment_method: 'ACH - Plaid' }
+          items: mockInvoiceItems['INV-001'],
+          breakdown: { base_rent: 1400, late_fee: 0, items_total: 0, total_due: 1400, payment_method: 'ACH - Plaid' }
         },
         {
           id: 'INV-002',
@@ -71,7 +80,8 @@ async function getInvoices(req, res) {
             { timestamp: new Date().toISOString(), event: 'Invoice created', description: 'Scheduled monthly rent invoice generated.' },
             { timestamp: new Date().toISOString(), event: 'Late fee applied', description: '$50 late penalty assessed.' }
           ],
-          breakdown: { base_rent: 1350, late_fee: 50, total_due: 1400, payment_method: 'ACH - Plaid' }
+          items: mockInvoiceItems['INV-002'],
+          breakdown: { base_rent: 1350, late_fee: 50, items_total: 50, total_due: 1450, payment_method: 'ACH - Plaid' }
         },
         {
           id: 'INV-003',
@@ -95,7 +105,8 @@ async function getInvoices(req, res) {
             { timestamp: new Date().toISOString(), event: 'Invoice created', description: 'Scheduled monthly rent invoice generated.' },
             { timestamp: new Date().toISOString(), event: 'ACH transfer initiated', description: 'Plaid transfer submitted, awaiting bank clearance.' }
           ],
-          breakdown: { base_rent: 1500, late_fee: 0, total_due: 1500, payment_method: 'ACH - Plaid' }
+          items: mockInvoiceItems['INV-003'],
+          breakdown: { base_rent: 1500, late_fee: 0, items_total: 0, total_due: 1500, payment_method: 'ACH - Plaid' }
         }
       ];
       return res.json(mockInvoices);
@@ -112,7 +123,23 @@ async function getInvoices(req, res) {
        ORDER BY i.due_date DESC`
     );
 
+    const invoiceIds = result.rows.map(row => row.id);
+    const itemsByInvoice = {};
+    if (invoiceIds.length > 0) {
+      const itemsRes = await pool.query(
+        `SELECT id, invoice_id, description, amount FROM invoice_items WHERE invoice_id = ANY($1) ORDER BY created_at`,
+        [invoiceIds]
+      );
+      for (const item of itemsRes.rows) {
+        (itemsByInvoice[item.invoice_id] ||= []).push({
+          id: item.id, description: item.description, amount: parseFloat(item.amount),
+        });
+      }
+    }
+
     const formattedInvoices = result.rows.map(row => {
+      const items = itemsByInvoice[row.id] || [];
+      const itemsTotal = items.reduce((sum, it) => sum + it.amount, 0);
       const baseInvoice = {
         id: row.id,
         lease_id: row.lease_id,
@@ -132,10 +159,12 @@ async function getInvoices(req, res) {
         timeline: [
           { timestamp: row.created_at, event: 'Invoice created', description: 'Generated automatically from lease terms.' }
         ],
+        items,
         breakdown: {
           base_rent: parseFloat(row.rent_amount),
           late_fee: parseFloat(row.late_fee || 0),
-          total_due: parseFloat(row.amount_due) + parseFloat(row.late_fee || 0),
+          items_total: itemsTotal,
+          total_due: parseFloat(row.amount_due) + parseFloat(row.late_fee || 0) + itemsTotal,
           payment_method: 'ACH - Plaid'
         }
       };
@@ -180,9 +209,12 @@ async function markPaid(req, res) {
     );
 
     // Gather tenant + owner context for the confirmation email before committing.
+    // items_total folds in any ad hoc invoice_items so the amount actually
+    // received reflects the full invoice, not just the base rent.
     const ctx = await client.query(
-      `SELECT i.amount_due, t.id AS tenant_id, t.name AS tenant_name, t.email AS tenant_email,
-              p.owner_id, u.property_id, p.entity_id
+      `SELECT i.amount_due, i.late_fee, t.id AS tenant_id, t.name AS tenant_name, t.email AS tenant_email,
+              p.owner_id, u.property_id, p.entity_id,
+              (SELECT COALESCE(SUM(amount), 0) FROM invoice_items WHERE invoice_id = i.id) AS items_total
        FROM invoices i
        JOIN leases l ON i.lease_id = l.id
        JOIN tenants t ON l.tenant_id = t.id
@@ -194,13 +226,16 @@ async function markPaid(req, res) {
 
     // Post the rent income into the ledger inside the same transaction (idempotent).
     const paidCtx = ctx.rows[0];
+    const totalPaid = paidCtx
+      ? parseFloat(paidCtx.amount_due) + parseFloat(paidCtx.late_fee || 0) + parseFloat(paidCtx.items_total || 0)
+      : 0;
     if (paidCtx) {
       await transactionsService.insertRentReceived(client, {
         ownerId: paidCtx.owner_id,
         invoiceId: id,
         propertyId: paidCtx.property_id,
         entityId: paidCtx.entity_id,
-        amount: parseFloat(paidCtx.amount_due),
+        amount: totalPaid,
         date: new Date().toISOString().split('T')[0],
         paymentMethod: req.body.payment_method || null,
       });
@@ -215,7 +250,7 @@ async function markPaid(req, res) {
       sendNotice({
         ownerId: c.owner_id, tenantId: c.tenant_id, invoiceId: id, type: 'payment_confirmation',
         to: c.tenant_email, subject: 'Payment received — thank you',
-        html: `<p>Hi ${c.tenant_name},</p><p>We've recorded your rent payment of <strong>$${Number(c.amount_due).toFixed(2)}</strong>. Thank you!</p><p>Murlee PMS</p>`,
+        html: `<p>Hi ${c.tenant_name},</p><p>We've recorded your rent payment of <strong>$${totalPaid.toFixed(2)}</strong>. Thank you!</p><p>Murlee PMS</p>`,
       }).catch((e) => console.error('Payment confirmation email failed:', e.message));
     }
 
@@ -249,8 +284,60 @@ async function deleteInvoice(req, res) {
   }
 }
 
+async function addInvoiceItem(req, res) {
+  const { id } = req.params;
+  const { description, amount } = req.body;
+  if (!description || !description.trim() || amount === undefined || Number.isNaN(Number(amount))) {
+    return res.status(400).json({ error: 'description and amount are required' });
+  }
+
+  if (!process.env.DATABASE_URL) {
+    const items = mockInvoiceItems[id];
+    if (!items) return res.status(404).json({ error: 'Invoice not found' });
+    const item = { id: `item-${Date.now()}`, description: description.trim(), amount: Number(amount) };
+    items.push(item);
+    return res.status(201).json(item);
+  }
+
+  try {
+    const result = await invoiceService.addInvoiceItem(pool, id, { description: description.trim(), amount: Number(amount) });
+    if (!result.ok) return res.status(result.error === 'Invoice not found' ? 404 : 409).json({ error: result.error });
+    invalidateDashboardCache();
+    res.status(201).json({ id: result.id });
+  } catch (error) {
+    console.error('Failed to add invoice item:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
+async function deleteInvoiceItem(req, res) {
+  const { id, itemId } = req.params;
+
+  if (!process.env.DATABASE_URL) {
+    const items = mockInvoiceItems[id];
+    if (!items) return res.status(404).json({ error: 'Invoice not found' });
+    mockInvoiceItems[id] = items.filter((it) => it.id !== itemId);
+    return res.json({ message: 'Mock invoice item deleted' });
+  }
+
+  try {
+    const result = await invoiceService.deleteInvoiceItem(pool, id, itemId);
+    if (!result.ok) {
+      if (result.error) return res.status(result.error === 'Invoice not found' ? 404 : 409).json({ error: result.error });
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    invalidateDashboardCache();
+    res.json({ message: 'Invoice item deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete invoice item:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
 module.exports = {
   getInvoices,
   markPaid,
-  deleteInvoice
+  deleteInvoice,
+  addInvoiceItem,
+  deleteInvoiceItem,
 };
