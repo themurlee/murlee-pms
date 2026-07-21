@@ -190,3 +190,7 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS memo TEXT;
 CREATE INDEX IF NOT EXISTS idx_transactions_owner_id ON transactions(owner_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_property_id ON transactions(property_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_account_class ON transactions(account_class);
+
+-- Invoices: exact payment timestamp (distinct from due_date), used by the
+-- Rent Collection Ledger, Tenant Ledger, and Rent Roll views.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;

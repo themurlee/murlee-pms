@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { RentRoll } from '../shared/RentRoll';
 
 type ReportTabType = 'cashflow' | 'schedule_e' | 'rent_roll' | 'delinquency';
 
@@ -37,14 +38,6 @@ export const Reports = () => {
     { code: '14', name: 'Repairs', amount: -3570 },
     { code: '16', name: 'Taxes', amount: -7200 },
     { code: '17', name: 'Utilities', amount: -14300 },
-  ];
-
-  // Rent Roll Data
-  const rentRollData = [
-    { property: 'Oakridge', unit: '#101', tenant: 'Jane Doe', status: 'Delinquent', rent: 1400, balance: 1800 },
-    { property: 'Pacific Heights', unit: '#4', tenant: 'John Smith', status: 'Current', rent: 1350, balance: 0 },
-    { property: 'Oakridge', unit: '#102', tenant: 'Alice Cooper', status: 'Current', rent: 1500, balance: 0 },
-    { property: 'Pacific Heights', unit: '#12', tenant: 'Bob Marley', status: 'Grace Period', rent: 1600, balance: 400 },
   ];
 
   // Delinquency Data
@@ -143,6 +136,9 @@ export const Reports = () => {
       </div>
 
       {/* Reports Table Grid */}
+      {activeReportTab === 'rent_roll' ? (
+        <RentRoll />
+      ) : (
       <div className="overflow-x-auto glass-panel rounded-2xl">
         {activeReportTab === 'cashflow' && (
           <table className="min-w-full divide-y divide-white/5 text-left border-collapse">
@@ -259,45 +255,6 @@ export const Reports = () => {
           </table>
         )}
 
-        {activeReportTab === 'rent_roll' && (
-          <table className="min-w-full divide-y divide-white/5 text-left border-collapse">
-            <thead className="bg-white/5 text-[10px] text-slate-400 font-bold uppercase tracking-wider text-outfit">
-              <tr>
-                <th className="px-6 py-4">Property / Location</th>
-                <th className="px-6 py-4">Unit</th>
-                <th className="px-6 py-4">Current Tenant</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Lease Rent</th>
-                <th className="px-6 py-4 text-right">Ledger Balance</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5 bg-transparent text-sm">
-              {rentRollData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-white/5 text-slate-300">
-                  <td className="px-6 py-4 font-semibold text-slate-200">{row.property}</td>
-                  <td className="px-6 py-4 font-mono">{row.unit}</td>
-                  <td className="px-6 py-4">{row.tenant}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      row.status === 'Current' 
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                        : row.status === 'Delinquent'
-                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    }`}>
-                      {row.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right font-bold text-slate-200">${row.rent}</td>
-                  <td className={`px-6 py-4 text-right font-bold ${row.balance > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
-                    ${row.balance}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
         {activeReportTab === 'delinquency' && (
           <table className="min-w-full divide-y divide-white/5 text-left border-collapse">
             <thead className="bg-white/5 text-[10px] text-slate-400 font-bold uppercase tracking-wider text-outfit">
@@ -332,6 +289,7 @@ export const Reports = () => {
           </table>
         )}
       </div>
+      )}
     </div>
   );
 };
