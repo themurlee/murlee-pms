@@ -137,3 +137,87 @@ describe('threadsService.markRead', () => {
     expect(result).toEqual({ ok: true });
   });
 });
+
+describe('threadsService.matchInboundMessage', () => {
+  function makeFakeInboundClient(script) {
+    let i = 0;
+    const calls = [];
+    return {
+      calls,
+      query: async (text, params) => {
+        calls.push({ text, params });
+        if (/^BEGIN$|^COMMIT$|^ROLLBACK$/.test(text)) return {};
+        return script[i++] || { rows: [] };
+      },
+      release: () => {},
+    };
+  }
+
+  test('matches by In-Reply-To header to an existing thread', async () => {
+    const client = makeFakeInboundClient([
+      { rows: [{ thread_id: 'thread-1' }] }, // matched by gmail_message_id
+      {},                                     // UPDATE message_threads
+      {},                                     // INSERT messages
+    ]);
+    const pool = { connect: async () => client };
+
+    const result = await threadsService.matchInboundMessage(pool, {
+      ownerId: 'owner-1', fromEmail: 'jane@example.com', subject: 'Re: Leak', body: 'Thanks!',
+      gmailMessageId: '<in-1@gmail.com>', inReplyTo: '<out-1@gmail.com>',
+    });
+
+    expect(result).toEqual({ threadId: 'thread-1', matchedBy: 'reply' });
+    expect(client.calls[2].text).toMatch(/UPDATE message_threads/);
+  });
+
+  test('matches by tenant email to their most recent existing thread', async () => {
+    const client = makeFakeInboundClient([
+      { rows: [{ id: 'tenant-1' }] },   // tenant lookup by email
+      { rows: [{ id: 'thread-2' }] },   // existing thread for that tenant
+      {},                                // UPDATE message_threads
+      {},                                // INSERT messages
+    ]);
+    const pool = { connect: async () => client };
+
+    const result = await threadsService.matchInboundMessage(pool, {
+      ownerId: 'owner-1', fromEmail: 'jane@example.com', subject: 'Follow-up', body: 'Any update?',
+    });
+
+    expect(result).toEqual({ threadId: 'thread-2', matchedBy: 'tenant' });
+  });
+
+  test('matches tenant by email but creates a new thread when none exists yet', async () => {
+    const client = makeFakeInboundClient([
+      { rows: [{ id: 'tenant-1' }] },   // tenant lookup by email
+      { rows: [] },                     // no existing thread
+      { rows: [{ id: 'thread-3' }] },   // INSERT message_threads
+      {},                                // INSERT messages
+    ]);
+    const pool = { connect: async () => client };
+
+    const result = await threadsService.matchInboundMessage(pool, {
+      ownerId: 'owner-1', fromEmail: 'jane@example.com', subject: 'New issue', body: 'The heater is broken.',
+    });
+
+    expect(result).toEqual({ threadId: 'thread-3', matchedBy: 'tenant' });
+    expect(client.calls[3].text).toMatch(/INSERT INTO message_threads/);
+  });
+
+  test('creates a thread with no tenant_id when the sender matches nothing', async () => {
+    const client = makeFakeInboundClient([
+      { rows: [] },                     // tenant lookup finds nothing
+      { rows: [{ id: 'thread-4' }] },   // INSERT message_threads
+      {},                                // INSERT messages
+    ]);
+    const pool = { connect: async () => client };
+
+    const result = await threadsService.matchInboundMessage(pool, {
+      ownerId: 'owner-1', fromEmail: 'stranger@example.com', fromName: 'Stranger', subject: 'Question', body: 'Do you have any vacancies?',
+    });
+
+    expect(result).toEqual({ threadId: 'thread-4', matchedBy: 'none' });
+    const insertThread = client.calls.find((c) => /INSERT INTO message_threads/.test(c.text));
+    expect(insertThread.params).toContain('stranger@example.com');
+    expect(insertThread.params).toContain(null); // tenant_id
+  });
+});
