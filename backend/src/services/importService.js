@@ -206,10 +206,21 @@ async function importPropertiesFromCSV(pool, ownerId, csvText, { dryRun = false,
     );
     const property = inserted.rows[0];
 
-    await pool.query(
-      `INSERT INTO units (property_id, unit_number, market_rent) VALUES ($1, $2, $3)`,
+    const insertedUnit = await pool.query(
+      `INSERT INTO units (property_id, unit_number, market_rent) VALUES ($1, $2, $3) RETURNING *`,
       [property.id, 'Unit 1', marketRent]
     );
+    const unit = insertedUnit.rows[0];
+
+    await auditService.log(pool, {
+      entity_type: 'unit',
+      entity_id: unit.id,
+      action: 'create',
+      before: null,
+      after: unit,
+      reason: `import:batch_${id}`,
+      user_id: ownerId,
+    });
 
     await pool.query(
       `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,

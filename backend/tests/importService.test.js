@@ -210,6 +210,7 @@ describe('importService.importPropertiesFromCSV — full import', () => {
     const calls = [];
     const dedupKeys = new Set();
     let seq = 0;
+    let unitSeq = 0;
     return {
       calls,
       query: async (text, params) => {
@@ -228,7 +229,10 @@ describe('importService.importPropertiesFromCSV — full import', () => {
           seq += 1;
           return { rows: [{ id: `prop-${seq}`, owner_id: params[0], entity_id: params[1], nickname: params[2] }] };
         }
-        if (/INSERT INTO units/.test(text)) return { rows: [] };
+        if (/INSERT INTO units/.test(text)) {
+          unitSeq += 1;
+          return { rows: [{ id: `unit-${unitSeq}`, property_id: params[0], unit_number: params[1], market_rent: params[2] }] };
+        }
         if (/INSERT INTO import_dedup/.test(text)) {
           const [batchId, , externalId] = params;
           dedupKeys.add(`${batchId}::${externalId}`);
@@ -252,8 +256,13 @@ describe('importService.importPropertiesFromCSV — full import', () => {
     expect(pool.calls.filter((c) => /INSERT INTO units/.test(c.text))).toHaveLength(1);
     expect(pool.calls.filter((c) => /INSERT INTO import_dedup/.test(c.text))).toHaveLength(1);
     const auditInserts = pool.calls.filter((c) => /INSERT INTO audit_logs/.test(c.text));
-    expect(auditInserts).toHaveLength(1);
+    expect(auditInserts).toHaveLength(2);
     expect(auditInserts[0].params[2]).toBe('create');
+    expect(auditInserts[1].params[2]).toBe('create');
+    // One audit entry for 'unit', one for 'property'
+    const entityTypes = auditInserts.map((a) => a.params[0]);
+    expect(entityTypes).toContain('unit');
+    expect(entityTypes).toContain('property');
   });
 
   test('rejects a row referencing an entity_id not owned by this account', async () => {
