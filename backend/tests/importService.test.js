@@ -335,6 +335,9 @@ describe('importService.importLeasesFromCSV', () => {
     expect(result.error_count).toBe(0);
     expect(pool.calls.filter((c) => /INSERT INTO leases/.test(c.text))).toHaveLength(1);
     expect(pool.calls.filter((c) => /INSERT INTO import_dedup/.test(c.text))).toHaveLength(1);
+    const auditInserts = pool.calls.filter((c) => /INSERT INTO audit_logs/.test(c.text));
+    expect(auditInserts).toHaveLength(1);
+    expect(auditInserts[0].params[2]).toBe('create');
   });
 
   test('rejects a row whose unit is not owned by this account', async () => {
