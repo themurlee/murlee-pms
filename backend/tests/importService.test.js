@@ -474,3 +474,94 @@ describe('importService.importTenantsFromCSV', () => {
     expect(pool.calls.filter((c) => c.viaClient && /INSERT INTO tenants/.test(c.text))).toHaveLength(1);
   });
 });
+
+describe('importService.importTransactionsFromCSV', () => {
+  function makeFakePool({ ownedPropertyIds = new Set(['prop-1']), ownedEntityIds = new Set(['entity-1']) } = {}) {
+    const calls = [];
+    const dedupKeys = new Set();
+    let seq = 0;
+    return {
+      calls,
+      query: async (text, params) => {
+        calls.push({ text, params });
+        if (/SELECT id FROM properties WHERE/.test(text)) {
+          const [propertyId] = params;
+          return { rows: ownedPropertyIds.has(propertyId) ? [{ id: propertyId }] : [] };
+        }
+        if (/SELECT id FROM entities WHERE/.test(text)) {
+          const [entityId] = params;
+          return { rows: ownedEntityIds.has(entityId) ? [{ id: entityId }] : [] };
+        }
+        if (/INSERT INTO import_batches/.test(text)) return { rows: [] };
+        if (/UPDATE import_batches/.test(text)) return { rows: [] };
+        if (/SELECT entity_id FROM import_dedup/.test(text)) {
+          const [batchId, , externalId] = params;
+          return { rows: dedupKeys.has(`${batchId}::${externalId}`) ? [{ entity_id: 'existing' }] : [] };
+        }
+        if (/INSERT INTO transactions/.test(text)) {
+          seq += 1;
+          return { rows: [{ id: `txn-${seq}`, amount: params[1], source: 'csv' }] };
+        }
+        if (/INSERT INTO import_dedup/.test(text)) {
+          const [batchId, , externalId] = params;
+          dedupKeys.add(`${batchId}::${externalId}`);
+          return { rows: [] };
+        }
+        if (/INSERT INTO audit_logs/.test(text)) return { rows: [{ id: 'audit-1' }] };
+        return { rows: [] };
+      },
+    };
+  }
+
+  const validCsv = 'external_id,amount,transaction_date,description,property_id\next-1,-85.50,2026-07-08,Home Depot supplies,prop-1';
+
+  test('writes a transaction with source=csv, dedup row, and audit log entry', async () => {
+    const pool = makeFakePool();
+    const result = await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
+
+    expect(result.entity_type).toBe('transactions');
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(0);
+    const txnInsert = pool.calls.find((c) => /INSERT INTO transactions/.test(c.text));
+    expect(txnInsert.text).toMatch(/'csv'/);
+    expect(pool.calls.filter((c) => /INSERT INTO import_dedup/.test(c.text))).toHaveLength(1);
+    expect(pool.calls.some((c) => /INSERT INTO audit_logs/.test(c.text))).toBe(true);
+  });
+
+  test('rejects a row referencing a property not owned by this account', async () => {
+    const pool = makeFakePool({ ownedPropertyIds: new Set() });
+    const result = await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
+
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0].error).toMatch(/property/i);
+    expect(pool.calls.some((c) => /INSERT INTO transactions/.test(c.text))).toBe(false);
+  });
+
+  test('rejects a row with a non-numeric amount', async () => {
+    const pool = makeFakePool();
+    const csv = 'external_id,amount,transaction_date\next-1,not-a-number,2026-07-08';
+    const result = await importService.importTransactionsFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0].error).toMatch(/amount/i);
+  });
+
+  test('dry run validates without writing', async () => {
+    const pool = makeFakePool();
+    const result = await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: true });
+
+    expect(result.dry_run).toBe(true);
+    expect(result.success_count).toBe(1);
+    expect(pool.calls.some((c) => /INSERT INTO transactions/.test(c.text))).toBe(false);
+  });
+
+  test('retrying the same batch_id does not create a duplicate transaction', async () => {
+    const pool = makeFakePool();
+    const batchId = 'batch-txns-1';
+
+    await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
+    await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
+
+    expect(pool.calls.filter((c) => /INSERT INTO transactions/.test(c.text))).toHaveLength(1);
+  });
+});

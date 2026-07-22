@@ -505,4 +505,137 @@ async function importTenantsFromCSV(pool, ownerId, csvText, { dryRun = false, ba
   };
 }
 
-module.exports = { importInvoicesFromCSV, importPropertiesFromCSV, importLeasesFromCSV, importTenantsFromCSV };
+const TRANSACTION_REQUIRED_FIELDS = ['external_id', 'amount', 'transaction_date'];
+
+function validateTransactionRow(row) {
+  for (const field of TRANSACTION_REQUIRED_FIELDS) {
+    if (!row[field] || !String(row[field]).trim()) {
+      return `Missing required field: ${field}`;
+    }
+  }
+  if (Number.isNaN(Number(row.amount))) {
+    return 'amount must be a number';
+  }
+  if (row.account_class && !['real_estate', 'personal'].includes(row.account_class)) {
+    return 'account_class must be real_estate or personal';
+  }
+  return null;
+}
+
+async function propertyOwnedBy(pool, propertyId, ownerId) {
+  const res = await pool.query(
+    `SELECT id FROM properties WHERE id = $1 AND owner_id = $2`,
+    [propertyId, ownerId]
+  );
+  return res.rows.length > 0;
+}
+
+async function importTransactionsFromCSV(pool, ownerId, csvText, { dryRun = false, batchId } = {}) {
+  const rows = parseCsv(csvText);
+  const id = batchId || crypto.randomUUID();
+
+  if (!dryRun) {
+    await pool.query(
+      `INSERT INTO import_batches (id, owner_id, entity_type, status, row_count)
+       VALUES ($1, $2, 'transactions', 'pending', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, ownerId, rows.length]
+    );
+  }
+
+  let success_count = 0;
+  let error_count = 0;
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 2;
+
+    const validationError = validateTransactionRow(row);
+    if (validationError) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: validationError });
+      continue;
+    }
+
+    if (!dryRun && await alreadyImported(pool, id, 'transaction', row.external_id)) {
+      success_count += 1;
+      continue;
+    }
+
+    if (row.property_id && !(await propertyOwnedBy(pool, row.property_id, ownerId))) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: `Property ${row.property_id} not found or not owned by this account` });
+      continue;
+    }
+
+    if (row.entity_id && !(await entityOwnedBy(pool, row.entity_id, ownerId))) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: `Entity ${row.entity_id} not found or not owned by this account` });
+      continue;
+    }
+
+    if (dryRun) {
+      success_count += 1;
+      continue;
+    }
+
+    const inserted = await pool.query(
+      `INSERT INTO transactions
+         (owner_id, amount, transaction_date, description, category, property_id, entity_id,
+          account_class, source, payment_method, reviewed, classification_flag)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'csv', $9, $10, 'auto')
+       RETURNING *`,
+      [
+        ownerId,
+        Number(row.amount),
+        row.transaction_date,
+        row.description || '',
+        row.category || null,
+        row.property_id || null,
+        row.entity_id || null,
+        row.account_class || 'real_estate',
+        row.payment_method || null,
+        row.reviewed === 'true',
+      ]
+    );
+    const transaction = inserted.rows[0];
+
+    await pool.query(
+      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+      [id, 'transaction', row.external_id, transaction.id]
+    );
+
+    await auditService.log(pool, {
+      entity_type: 'transaction',
+      entity_id: transaction.id,
+      action: 'create',
+      before: null,
+      after: transaction,
+      reason: `import:batch_${id}`,
+      user_id: ownerId,
+    });
+
+    success_count += 1;
+  }
+
+  if (!dryRun) {
+    const status = error_count > 0 ? (success_count > 0 ? 'partial' : 'failed') : 'success';
+    await pool.query(
+      `UPDATE import_batches SET status = $1, success_count = $2, error_count = $3 WHERE id = $4`,
+      [status, success_count, error_count, id]
+    );
+  }
+
+  return {
+    batch_id: id,
+    entity_type: 'transactions',
+    row_count: rows.length,
+    success_count,
+    error_count,
+    dry_run: dryRun,
+    errors,
+  };
+}
+
+module.exports = { importInvoicesFromCSV, importPropertiesFromCSV, importLeasesFromCSV, importTenantsFromCSV, importTransactionsFromCSV };
