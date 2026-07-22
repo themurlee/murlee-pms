@@ -142,6 +142,7 @@ struct RevenueBar: Identifiable {
 
 enum MockData {
     static let landlordName = "Marcus"
+    static let tenantName = "Elena"
 
     static let revenueBars: [RevenueBar] = zip(
         [0.40, 0.62, 0.55, 0.78, 0.70, 0.92, 0.84],

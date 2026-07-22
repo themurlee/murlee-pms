@@ -7,6 +7,15 @@ struct RootView: View {
     // Default Landlord; overridable for screenshots/UI tests via `-startRole tenant`.
     @State private var role: Role = UserDefaults.standard.string(forKey: "startRole") == "tenant" ? .tenant : .landlord
 
+    /// Time-of-day greeting for the landlord header.
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12:  return "GOOD MORNING"
+        case 12..<17: return "GOOD AFTERNOON"
+        default:      return "GOOD EVENING"
+        }
+    }
+
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
@@ -42,11 +51,11 @@ struct RootView: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(role == .landlord ? "GOOD MORNING" : "WELCOME BACK")
+                Text(role == .landlord ? greeting : "WELCOME BACK")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(0.3)
                     .foregroundStyle(Theme.textMuted)
-                Text(role == .landlord ? "\(MockData.landlordName)'s portfolio" : "Hi, Elena")
+                Text(role == .landlord ? "\(MockData.landlordName)'s portfolio" : "Hi, \(MockData.tenantName)")
                     .font(.system(size: 20, weight: .heavy))
                     .foregroundStyle(Theme.textPrimary)
             }
@@ -90,7 +99,7 @@ struct RootView: View {
                                  startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: 40, height: 40)
             .overlay(
-                Text(role == .landlord ? String(MockData.landlordName.prefix(1)) : "E")
+                Text(String((role == .landlord ? MockData.landlordName : MockData.tenantName).prefix(1)))
                     .font(.system(size: 15, weight: .heavy))
                     .foregroundStyle(Theme.onEmerald)
             )
