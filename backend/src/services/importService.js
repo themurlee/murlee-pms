@@ -384,4 +384,125 @@ async function importLeasesFromCSV(pool, ownerId, csvText, { dryRun = false, bat
   };
 }
 
-module.exports = { importInvoicesFromCSV, importPropertiesFromCSV, importLeasesFromCSV };
+const TENANT_REQUIRED_FIELDS = ['external_id', 'name', 'email', 'unit_id', 'rent', 'start_date', 'end_date'];
+
+function validateTenantRow(row) {
+  for (const field of TENANT_REQUIRED_FIELDS) {
+    if (!row[field] || !String(row[field]).trim()) {
+      return `Missing required field: ${field}`;
+    }
+  }
+  if (Number.isNaN(Number(row.rent))) {
+    return 'rent must be a number';
+  }
+  return null;
+}
+
+async function importTenantsFromCSV(pool, ownerId, csvText, { dryRun = false, batchId } = {}) {
+  const rows = parseCsv(csvText);
+  const id = batchId || crypto.randomUUID();
+
+  if (!dryRun) {
+    await pool.query(
+      `INSERT INTO import_batches (id, owner_id, entity_type, status, row_count)
+       VALUES ($1, $2, 'tenants', 'pending', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, ownerId, rows.length]
+    );
+  }
+
+  let success_count = 0;
+  let error_count = 0;
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 2;
+
+    const validationError = validateTenantRow(row);
+    if (validationError) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: validationError });
+      continue;
+    }
+
+    if (!dryRun && await alreadyImported(pool, id, 'tenant', row.external_id)) {
+      success_count += 1;
+      continue;
+    }
+
+    if (!(await unitOwnedBy(pool, row.unit_id, ownerId))) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: `Unit ${row.unit_id} not found or not owned by this account` });
+      continue;
+    }
+
+    if (dryRun) {
+      success_count += 1;
+      continue;
+    }
+
+    const client = await pool.connect();
+    let tenant;
+    try {
+      await client.query('BEGIN');
+
+      const tenantRes = await client.query(
+        `INSERT INTO tenants (name, email, phone, role) VALUES ($1, $2, $3, 'tenant') RETURNING *`,
+        [row.name, row.email, row.phone || null]
+      );
+      tenant = tenantRes.rows[0];
+
+      const dueDay = Number(row.due_day) || 1;
+      await client.query(
+        `INSERT INTO leases (unit_id, tenant_id, rent_amount, due_day, start_date, end_date, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
+        [row.unit_id, tenant.id, Number(row.rent), dueDay, row.start_date, row.end_date]
+      );
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    await pool.query(
+      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+      [id, 'tenant', row.external_id, tenant.id]
+    );
+
+    await auditService.log(pool, {
+      entity_type: 'tenant',
+      entity_id: tenant.id,
+      action: 'create',
+      before: null,
+      after: tenant,
+      reason: `import:batch_${id}`,
+      user_id: ownerId,
+    });
+
+    success_count += 1;
+  }
+
+  if (!dryRun) {
+    const status = error_count > 0 ? (success_count > 0 ? 'partial' : 'failed') : 'success';
+    await pool.query(
+      `UPDATE import_batches SET status = $1, success_count = $2, error_count = $3 WHERE id = $4`,
+      [status, success_count, error_count, id]
+    );
+  }
+
+  return {
+    batch_id: id,
+    entity_type: 'tenants',
+    row_count: rows.length,
+    success_count,
+    error_count,
+    dry_run: dryRun,
+    errors,
+  };
+}
+
+module.exports = { importInvoicesFromCSV, importPropertiesFromCSV, importLeasesFromCSV, importTenantsFromCSV };
