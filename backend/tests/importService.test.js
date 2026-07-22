@@ -137,6 +137,23 @@ describe('importService.importInvoicesFromCSV — full import', () => {
     const result = await importService.importInvoicesFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
     expect(result.batch_id).toMatch(/^[0-9a-f-]{36}$/i);
   });
+
+  test('a DB error on one row does not abort the rest of the batch', async () => {
+    const pool = makeFakePool();
+    const originalQuery = pool.query;
+    pool.query = async (text, params) => {
+      if (/INSERT INTO invoices/.test(text) && params[0] === 'lease-1' && params[1] === '2026-09-01') {
+        throw new Error('simulated DB failure');
+      }
+      return originalQuery(text, params);
+    };
+    const csv = 'external_id,lease_id,amount_due,due_date\next-1,lease-1,1400,2026-08-01\next-2,lease-1,1400,2026-09-01';
+    const result = await importService.importInvoicesFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0]).toMatchObject({ row: 3, error: 'simulated DB failure' });
+  });
 });
 
 describe('importService.importInvoicesFromCSV — idempotent retry', () => {
@@ -284,6 +301,23 @@ describe('importService.importPropertiesFromCSV — full import', () => {
 
     expect(pool.calls.filter((c) => /INSERT INTO properties/.test(c.text))).toHaveLength(1);
   });
+
+  test('a DB error on one row does not abort the rest of the batch', async () => {
+    const pool = makeFakePool();
+    const originalQuery = pool.query;
+    pool.query = async (text, params) => {
+      if (/INSERT INTO properties/.test(text) && params[2] === 'Bad House') {
+        throw new Error('simulated DB failure');
+      }
+      return originalQuery(text, params);
+    };
+    const csv = 'external_id,nickname,street,city,state,zip,entity_id\next-1,Maple House,12 Maple St,Austin,TX,78701,entity-1\next-2,Bad House,9 Oak St,Austin,TX,78701,entity-1';
+    const result = await importService.importPropertiesFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0]).toMatchObject({ row: 3, error: 'simulated DB failure' });
+  });
 });
 
 describe('importService.importLeasesFromCSV', () => {
@@ -375,6 +409,23 @@ describe('importService.importLeasesFromCSV', () => {
 
     expect(pool.calls.filter((c) => /INSERT INTO leases/.test(c.text))).toHaveLength(1);
   });
+
+  test('a DB error on one row does not abort the rest of the batch', async () => {
+    const pool = makeFakePool();
+    const originalQuery = pool.query;
+    pool.query = async (text, params) => {
+      if (/INSERT INTO leases/.test(text) && params[2] === 9999) {
+        throw new Error('simulated DB failure');
+      }
+      return originalQuery(text, params);
+    };
+    const csv = 'external_id,unit_id,tenant_id,rent_amount,start_date,end_date\next-1,unit-1,tenant-1,1400,2026-08-01,2027-07-31\next-2,unit-1,tenant-1,9999,2026-09-01,2027-08-31';
+    const result = await importService.importLeasesFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0]).toMatchObject({ row: 3, error: 'simulated DB failure' });
+  });
 });
 
 describe('importService.importTenantsFromCSV', () => {
@@ -392,6 +443,12 @@ describe('importService.importTenantsFromCSV', () => {
           return { rows: [{ id: `tenant-${tenantSeq}`, name: params[0], email: params[1] }] };
         }
         if (/INSERT INTO leases/.test(text)) return { rows: [{ id: `lease-${tenantSeq}` }] };
+        if (/INSERT INTO import_dedup/.test(text)) {
+          const [batchId, , externalId] = params;
+          dedupKeys.add(`${batchId}::${externalId}`);
+          return { rows: [] };
+        }
+        if (/INSERT INTO audit_logs/.test(text)) return { rows: [{ id: 'audit-1' }] };
         return { rows: [] };
       },
       release: () => {},
@@ -472,6 +529,31 @@ describe('importService.importTenantsFromCSV', () => {
     await importService.importTenantsFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
 
     expect(pool.calls.filter((c) => c.viaClient && /INSERT INTO tenants/.test(c.text))).toHaveLength(1);
+  });
+
+  test('a DB error on one row does not abort the rest of the batch, and rolls back the failed row', async () => {
+    const pool = makeFakePool();
+    const client = await pool.connect();
+    const originalClientQuery = client.query;
+    client.query = async (text, params) => {
+      if (/INSERT INTO tenants/.test(text) && params[0] === 'Bad Person') {
+        throw new Error('simulated DB failure');
+      }
+      return originalClientQuery(text, params);
+    };
+
+    const csv = 'external_id,name,email,unit_id,rent,start_date,end_date\next-1,Jane Doe,jane@example.com,unit-1,1400,2026-08-01,2027-07-31\next-2,Bad Person,bad@example.com,unit-1,1400,2026-08-01,2027-07-31';
+    const result = await importService.importTenantsFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0]).toMatchObject({ row: 3, error: 'simulated DB failure' });
+
+    // ROLLBACK ran for the failed row's transaction.
+    expect(pool.calls.filter((c) => c.viaClient && c.text === 'ROLLBACK')).toHaveLength(1);
+    expect(pool.calls.filter((c) => c.viaClient && c.text === 'COMMIT')).toHaveLength(1);
+    // No lingering dedup/audit artifact for the failed row.
+    expect(pool.calls.some((c) => /INSERT INTO import_dedup/.test(c.text) && c.params[2] === 'ext-2')).toBe(false);
   });
 });
 
@@ -563,5 +645,22 @@ describe('importService.importTransactionsFromCSV', () => {
     await importService.importTransactionsFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
 
     expect(pool.calls.filter((c) => /INSERT INTO transactions/.test(c.text))).toHaveLength(1);
+  });
+
+  test('a DB error on one row does not abort the rest of the batch', async () => {
+    const pool = makeFakePool();
+    const originalQuery = pool.query;
+    pool.query = async (text, params) => {
+      if (/INSERT INTO transactions/.test(text) && params[1] === -999) {
+        throw new Error('simulated DB failure');
+      }
+      return originalQuery(text, params);
+    };
+    const csv = 'external_id,amount,transaction_date,description,property_id\next-1,-85.50,2026-07-08,Home Depot supplies,prop-1\next-2,-999,2026-07-09,Bad charge,prop-1';
+    const result = await importService.importTransactionsFromCSV(pool, 'owner-1', csv, { dryRun: false });
+
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0]).toMatchObject({ row: 3, error: 'simulated DB failure' });
   });
 });

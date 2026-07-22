@@ -84,30 +84,35 @@ async function importInvoicesFromCSV(pool, ownerId, csvText, { dryRun = false, b
       continue;
     }
 
-    const inserted = await pool.query(
-      `INSERT INTO invoices (lease_id, due_date, amount_due, status, billing_period, transfer_id)
-       VALUES ($1, $2, $3, 'unpaid', $4, $5)
-       RETURNING *`,
-      [row.lease_id, row.due_date, Number(row.amount_due), row.billing_period || null, row.transfer_id || null]
-    );
-    const invoice = inserted.rows[0];
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO invoices (lease_id, due_date, amount_due, status, billing_period, transfer_id)
+         VALUES ($1, $2, $3, 'unpaid', $4, $5)
+         RETURNING *`,
+        [row.lease_id, row.due_date, Number(row.amount_due), row.billing_period || null, row.transfer_id || null]
+      );
+      const invoice = inserted.rows[0];
 
-    await pool.query(
-      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
-      [id, 'invoice', row.external_id, invoice.id]
-    );
+      await pool.query(
+        `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+        [id, 'invoice', row.external_id, invoice.id]
+      );
 
-    await auditService.log(pool, {
-      entity_type: 'invoice',
-      entity_id: invoice.id,
-      action: 'create',
-      before: null,
-      after: invoice,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
+      await auditService.log(pool, {
+        entity_type: 'invoice',
+        entity_id: invoice.id,
+        action: 'create',
+        before: null,
+        after: invoice,
+        reason: `import:batch_${id}`,
+        user_id: ownerId,
+      });
 
-    success_count += 1;
+      success_count += 1;
+    } catch (error) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: error.message });
+    }
   }
 
   if (!dryRun) {
@@ -195,49 +200,54 @@ async function importPropertiesFromCSV(pool, ownerId, csvText, { dryRun = false,
       continue;
     }
 
-    const marketRent = Number(row.market_rent) || 0;
-    const address = JSON.stringify({ street: row.street, city: row.city, state: row.state, zip: row.zip });
+    try {
+      const marketRent = Number(row.market_rent) || 0;
+      const address = JSON.stringify({ street: row.street, city: row.city, state: row.state, zip: row.zip });
 
-    const inserted = await pool.query(
-      `INSERT INTO properties (owner_id, entity_id, nickname, address, property_type, estimated_rent_roll)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [ownerId, row.entity_id || null, row.nickname, address, row.property_type || 'Single-Family', marketRent]
-    );
-    const property = inserted.rows[0];
+      const inserted = await pool.query(
+        `INSERT INTO properties (owner_id, entity_id, nickname, address, property_type, estimated_rent_roll)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [ownerId, row.entity_id || null, row.nickname, address, row.property_type || 'Single-Family', marketRent]
+      );
+      const property = inserted.rows[0];
 
-    const insertedUnit = await pool.query(
-      `INSERT INTO units (property_id, unit_number, market_rent) VALUES ($1, $2, $3) RETURNING *`,
-      [property.id, 'Unit 1', marketRent]
-    );
-    const unit = insertedUnit.rows[0];
+      const insertedUnit = await pool.query(
+        `INSERT INTO units (property_id, unit_number, market_rent) VALUES ($1, $2, $3) RETURNING *`,
+        [property.id, 'Unit 1', marketRent]
+      );
+      const unit = insertedUnit.rows[0];
 
-    await auditService.log(pool, {
-      entity_type: 'unit',
-      entity_id: unit.id,
-      action: 'create',
-      before: null,
-      after: unit,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
+      await auditService.log(pool, {
+        entity_type: 'unit',
+        entity_id: unit.id,
+        action: 'create',
+        before: null,
+        after: unit,
+        reason: `import:batch_${id}`,
+        user_id: ownerId,
+      });
 
-    await pool.query(
-      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
-      [id, 'property', row.external_id, property.id]
-    );
+      await pool.query(
+        `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+        [id, 'property', row.external_id, property.id]
+      );
 
-    await auditService.log(pool, {
-      entity_type: 'property',
-      entity_id: property.id,
-      action: 'create',
-      before: null,
-      after: property,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
+      await auditService.log(pool, {
+        entity_type: 'property',
+        entity_id: property.id,
+        action: 'create',
+        before: null,
+        after: property,
+        reason: `import:batch_${id}`,
+        user_id: ownerId,
+      });
 
-    success_count += 1;
+      success_count += 1;
+    } catch (error) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: error.message });
+    }
   }
 
   if (!dryRun) {
@@ -339,30 +349,35 @@ async function importLeasesFromCSV(pool, ownerId, csvText, { dryRun = false, bat
       continue;
     }
 
-    const inserted = await pool.query(
-      `INSERT INTO leases (unit_id, tenant_id, rent_amount, due_day, start_date, end_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active')
-       RETURNING *`,
-      [row.unit_id, row.tenant_id, Number(row.rent_amount), Number(row.due_day) || 1, row.start_date, row.end_date]
-    );
-    const lease = inserted.rows[0];
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO leases (unit_id, tenant_id, rent_amount, due_day, start_date, end_date, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active')
+         RETURNING *`,
+        [row.unit_id, row.tenant_id, Number(row.rent_amount), Number(row.due_day) || 1, row.start_date, row.end_date]
+      );
+      const lease = inserted.rows[0];
 
-    await pool.query(
-      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
-      [id, 'lease', row.external_id, lease.id]
-    );
+      await pool.query(
+        `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+        [id, 'lease', row.external_id, lease.id]
+      );
 
-    await auditService.log(pool, {
-      entity_type: 'lease',
-      entity_id: lease.id,
-      action: 'create',
-      before: null,
-      after: lease,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
+      await auditService.log(pool, {
+        entity_type: 'lease',
+        entity_id: lease.id,
+        action: 'create',
+        before: null,
+        after: lease,
+        reason: `import:batch_${id}`,
+        user_id: ownerId,
+      });
 
-    success_count += 1;
+      success_count += 1;
+    } catch (error) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: error.message });
+    }
   }
 
   if (!dryRun) {
@@ -442,48 +457,51 @@ async function importTenantsFromCSV(pool, ownerId, csvText, { dryRun = false, ba
       continue;
     }
 
-    const client = await pool.connect();
-    let tenant;
     try {
-      await client.query('BEGIN');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
 
-      const tenantRes = await client.query(
-        `INSERT INTO tenants (name, email, phone, role) VALUES ($1, $2, $3, 'tenant') RETURNING *`,
-        [row.name, row.email, row.phone || null]
-      );
-      tenant = tenantRes.rows[0];
+        const tenantRes = await client.query(
+          `INSERT INTO tenants (name, email, phone, role) VALUES ($1, $2, $3, 'tenant') RETURNING *`,
+          [row.name, row.email, row.phone || null]
+        );
+        const tenant = tenantRes.rows[0];
 
-      const dueDay = Number(row.due_day) || 1;
-      await client.query(
-        `INSERT INTO leases (unit_id, tenant_id, rent_amount, due_day, start_date, end_date, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
-        [row.unit_id, tenant.id, Number(row.rent), dueDay, row.start_date, row.end_date]
-      );
+        const dueDay = Number(row.due_day) || 1;
+        await client.query(
+          `INSERT INTO leases (unit_id, tenant_id, rent_amount, due_day, start_date, end_date, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
+          [row.unit_id, tenant.id, Number(row.rent), dueDay, row.start_date, row.end_date]
+        );
 
-      await client.query('COMMIT');
+        await client.query(
+          `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+          [id, 'tenant', row.external_id, tenant.id]
+        );
+
+        await auditService.log(client, {
+          entity_type: 'tenant',
+          entity_id: tenant.id,
+          action: 'create',
+          before: null,
+          after: tenant,
+          reason: `import:batch_${id}`,
+          user_id: ownerId,
+        });
+
+        await client.query('COMMIT');
+        success_count += 1;
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+      error_count += 1;
+      errors.push({ row: rowNumber, error: error.message });
     }
-
-    await pool.query(
-      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
-      [id, 'tenant', row.external_id, tenant.id]
-    );
-
-    await auditService.log(pool, {
-      entity_type: 'tenant',
-      entity_id: tenant.id,
-      action: 'create',
-      before: null,
-      after: tenant,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
-
-    success_count += 1;
   }
 
   if (!dryRun) {
@@ -580,43 +598,48 @@ async function importTransactionsFromCSV(pool, ownerId, csvText, { dryRun = fals
       continue;
     }
 
-    const inserted = await pool.query(
-      `INSERT INTO transactions
-         (owner_id, amount, transaction_date, description, category, property_id, entity_id,
-          account_class, source, payment_method, reviewed, classification_flag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'csv', $9, $10, 'auto')
-       RETURNING *`,
-      [
-        ownerId,
-        Number(row.amount),
-        row.transaction_date,
-        row.description || '',
-        row.category || null,
-        row.property_id || null,
-        row.entity_id || null,
-        row.account_class || 'real_estate',
-        row.payment_method || null,
-        row.reviewed === 'true',
-      ]
-    );
-    const transaction = inserted.rows[0];
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO transactions
+           (owner_id, amount, transaction_date, description, category, property_id, entity_id,
+            account_class, source, payment_method, reviewed, classification_flag)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'csv', $9, $10, 'auto')
+         RETURNING *`,
+        [
+          ownerId,
+          Number(row.amount),
+          row.transaction_date,
+          row.description || '',
+          row.category || null,
+          row.property_id || null,
+          row.entity_id || null,
+          row.account_class || 'real_estate',
+          row.payment_method || null,
+          row.reviewed === 'true',
+        ]
+      );
+      const transaction = inserted.rows[0];
 
-    await pool.query(
-      `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
-      [id, 'transaction', row.external_id, transaction.id]
-    );
+      await pool.query(
+        `INSERT INTO import_dedup (import_batch_id, entity_type, external_id, entity_id) VALUES ($1, $2, $3, $4)`,
+        [id, 'transaction', row.external_id, transaction.id]
+      );
 
-    await auditService.log(pool, {
-      entity_type: 'transaction',
-      entity_id: transaction.id,
-      action: 'create',
-      before: null,
-      after: transaction,
-      reason: `import:batch_${id}`,
-      user_id: ownerId,
-    });
+      await auditService.log(pool, {
+        entity_type: 'transaction',
+        entity_id: transaction.id,
+        action: 'create',
+        before: null,
+        after: transaction,
+        reason: `import:batch_${id}`,
+        user_id: ownerId,
+      });
 
-    success_count += 1;
+      success_count += 1;
+    } catch (error) {
+      error_count += 1;
+      errors.push({ row: rowNumber, error: error.message });
+    }
   }
 
   if (!dryRun) {
