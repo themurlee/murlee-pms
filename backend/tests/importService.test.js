@@ -285,3 +285,91 @@ describe('importService.importPropertiesFromCSV — full import', () => {
     expect(pool.calls.filter((c) => /INSERT INTO properties/.test(c.text))).toHaveLength(1);
   });
 });
+
+describe('importService.importLeasesFromCSV', () => {
+  function makeFakePool({ ownedUnitIds = new Set(['unit-1']), tenantIds = new Set(['tenant-1']) } = {}) {
+    const calls = [];
+    const dedupKeys = new Set();
+    let seq = 0;
+    return {
+      calls,
+      query: async (text, params) => {
+        calls.push({ text, params });
+        if (/FROM units u JOIN properties p/.test(text)) {
+          const [unitId] = params;
+          return { rows: ownedUnitIds.has(unitId) ? [{ id: unitId }] : [] };
+        }
+        if (/SELECT id FROM tenants WHERE/.test(text)) {
+          const [tenantId] = params;
+          return { rows: tenantIds.has(tenantId) ? [{ id: tenantId }] : [] };
+        }
+        if (/INSERT INTO import_batches/.test(text)) return { rows: [] };
+        if (/UPDATE import_batches/.test(text)) return { rows: [] };
+        if (/SELECT entity_id FROM import_dedup/.test(text)) {
+          const [batchId, , externalId] = params;
+          return { rows: dedupKeys.has(`${batchId}::${externalId}`) ? [{ entity_id: 'existing' }] : [] };
+        }
+        if (/INSERT INTO leases/.test(text)) {
+          seq += 1;
+          return { rows: [{ id: `lease-${seq}`, unit_id: params[0], tenant_id: params[1] }] };
+        }
+        if (/INSERT INTO import_dedup/.test(text)) {
+          const [batchId, , externalId] = params;
+          dedupKeys.add(`${batchId}::${externalId}`);
+          return { rows: [] };
+        }
+        if (/INSERT INTO audit_logs/.test(text)) return { rows: [{ id: 'audit-1' }] };
+        return { rows: [] };
+      },
+    };
+  }
+
+  const validCsv = 'external_id,unit_id,tenant_id,rent_amount,start_date,end_date\next-1,unit-1,tenant-1,1400,2026-08-01,2027-07-31';
+
+  test('writes a lease, dedup row, and audit log entry', async () => {
+    const pool = makeFakePool();
+    const result = await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
+
+    expect(result.entity_type).toBe('leases');
+    expect(result.success_count).toBe(1);
+    expect(result.error_count).toBe(0);
+    expect(pool.calls.filter((c) => /INSERT INTO leases/.test(c.text))).toHaveLength(1);
+    expect(pool.calls.filter((c) => /INSERT INTO import_dedup/.test(c.text))).toHaveLength(1);
+  });
+
+  test('rejects a row whose unit is not owned by this account', async () => {
+    const pool = makeFakePool({ ownedUnitIds: new Set() });
+    const result = await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
+
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0].error).toMatch(/unit/i);
+    expect(pool.calls.some((c) => /INSERT INTO leases/.test(c.text))).toBe(false);
+  });
+
+  test('rejects a row referencing a tenant that does not exist', async () => {
+    const pool = makeFakePool({ tenantIds: new Set() });
+    const result = await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: false });
+
+    expect(result.error_count).toBe(1);
+    expect(result.errors[0].error).toMatch(/tenant/i);
+  });
+
+  test('dry run validates without writing', async () => {
+    const pool = makeFakePool();
+    const result = await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: true });
+
+    expect(result.dry_run).toBe(true);
+    expect(result.success_count).toBe(1);
+    expect(pool.calls.some((c) => /INSERT INTO leases/.test(c.text))).toBe(false);
+  });
+
+  test('retrying the same batch_id does not create duplicate leases', async () => {
+    const pool = makeFakePool();
+    const batchId = 'batch-leases-1';
+
+    await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
+    await importService.importLeasesFromCSV(pool, 'owner-1', validCsv, { dryRun: false, batchId });
+
+    expect(pool.calls.filter((c) => /INSERT INTO leases/.test(c.text))).toHaveLength(1);
+  });
+});
