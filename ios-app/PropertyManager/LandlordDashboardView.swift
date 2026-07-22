@@ -12,7 +12,7 @@ struct LandlordDashboardView: View {
             RevenueHeroCard()
             KPIPair()
 
-            SectionHeader(title: "Your properties", trailing: "3 assets", trailingColor: Theme.emerald)
+            SectionHeader(title: "Your properties", trailing: "\(MockData.properties.count) assets", trailingColor: Theme.emerald)
             PropertyCarousel()
 
             SectionHeader(title: "Maintenance queue", trailing: "by priority", trailingColor: Theme.textMuted)
@@ -55,14 +55,14 @@ struct RevenueHeroCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Revenue collected · July")
                         .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textSecondary)
-                    Text("$48,250")
+                    Text(MockData.monthlyRevenueDisplay)
                         .font(.system(size: 30, weight: .heavy)).foregroundStyle(Theme.textPrimary)
                         .tracking(-1)
                 }
                 Spacer()
                 HStack(spacing: 4) {
                     Image(systemName: "chart.line.uptrend.xyaxis").font(.system(size: 11, weight: .heavy))
-                    Text("12.4%").font(.system(size: 12, weight: .bold))
+                    Text(MockData.revenueGrowthDisplay).font(.system(size: 12, weight: .bold))
                 }
                 .foregroundStyle(Theme.emeraldLight)
                 .padding(.horizontal, 9).padding(.vertical, 5)
@@ -110,12 +110,12 @@ struct KPIPair: View {
         VStack(alignment: .leading, spacing: 0) {
             kpiLabel(icon: "house.fill", tint: Theme.emerald, text: "Occupancy")
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("94").font(.system(size: 26, weight: .heavy)).foregroundStyle(Theme.textPrimary).tracking(-0.5)
+                Text("\(MockData.occupancyPercent)").font(.system(size: 26, weight: .heavy)).foregroundStyle(Theme.textPrimary).tracking(-0.5)
                 Text("%").font(.system(size: 15)).foregroundStyle(Theme.textMuted)
             }
             .padding(.top, 2)
-            ProgressBar(fraction: 0.94).padding(.top, 10)
-            Text("68 / 72 units leased").font(.system(size: 11, weight: .semibold))
+            ProgressBar(fraction: MockData.occupancyFraction).padding(.top, 10)
+            Text("\(MockData.occupiedUnits) / \(MockData.totalUnits) units leased").font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.textMuted).padding(.top, 7)
         }
         .padding(15).frame(maxWidth: .infinity, alignment: .leading).card()
@@ -124,13 +124,13 @@ struct KPIPair: View {
     private var openTickets: some View {
         VStack(alignment: .leading, spacing: 0) {
             kpiLabel(icon: "wrench.and.screwdriver.fill", tint: Theme.amber, text: "Open tickets")
-            Text("7").font(.system(size: 26, weight: .heavy)).foregroundStyle(Theme.textPrimary).tracking(-0.5).padding(.top, 2)
+            Text("\(MockData.openTicketCount)").font(.system(size: 26, weight: .heavy)).foregroundStyle(Theme.textPrimary).tracking(-0.5).padding(.top, 2)
             HStack(spacing: 5) {
-                pill("2 High", Theme.red)
-                pill("3 Med", Theme.amber)
+                pill("\(MockData.ticketCount(of: .high)) High", Theme.red)
+                pill("\(MockData.ticketCount(of: .medium)) Med", Theme.amber)
             }
             .padding(.top, 12)
-            Text("2 resolved today").font(.system(size: 11, weight: .semibold))
+            Text(MockData.resolvedTodayDisplay).font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.textMuted).padding(.top, 9)
         }
         .padding(15).frame(maxWidth: .infinity, alignment: .leading).card()

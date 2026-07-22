@@ -78,7 +78,8 @@ struct Property: Identifiable {
     let nickname: String       // properties.nickname
     let addressShort: String   // properties.address (street)
     let unitCount: Int
-    let occupied: String       // "22/24"
+    let occupiedUnits: Int
+    var occupied: String { "\(occupiedUnits)/\(unitCount)" }   // "22/24"
     let monthly: String        // formatted monthly revenue
     let health: PropertyHealth
 }
@@ -151,11 +152,11 @@ enum MockData {
 
     static let properties: [Property] = [
         Property(nickname: "Oakridge Apartments", addressShort: "Elm St", unitCount: 24,
-                 occupied: "22/24", monthly: "$41.2k", health: .healthy),
+                 occupiedUnits: 22, monthly: "$41.2k", health: .healthy),
         Property(nickname: "Maple Court", addressShort: "Maple Ave", unitCount: 12,
-                 occupied: "12/12", monthly: "$19.8k", health: .fullyLeased),
+                 occupiedUnits: 12, monthly: "$19.8k", health: .fullyLeased),
         Property(nickname: "Birchwood Res.", addressShort: "Birch Ln", unitCount: 36,
-                 occupied: "31/36", monthly: "$52.4k", health: .needsAttention),
+                 occupiedUnits: 31, monthly: "$52.4k", health: .needsAttention),
     ]
 
     /// Unsorted; the queue view sorts by `priority.rank` to match "by priority".
@@ -181,4 +182,23 @@ enum MockData {
         id: "INV-001", amountDue: 1850, dueLabel: "Due Aug 1",
         cardBrand: "Visa ·· 4821", autopayOn: false
     )
+
+    // MARK: Dashboard KPI aggregates (derived from properties/tickets above)
+
+    static var totalUnits: Int { properties.reduce(0) { $0 + $1.unitCount } }
+    static var occupiedUnits: Int { properties.reduce(0) { $0 + $1.occupiedUnits } }
+    static var occupancyFraction: CGFloat {
+        totalUnits == 0 ? 0 : CGFloat(occupiedUnits) / CGFloat(totalUnits)
+    }
+    static var occupancyPercent: Int { Int((occupancyFraction * 100).rounded()) }
+
+    static var openTicketCount: Int { tickets.count }
+    static func ticketCount(of priority: Priority) -> Int {
+        tickets.filter { $0.priority.rawValue == priority.rawValue }.count
+    }
+
+    // Not backed by MockData yet; keep as named placeholders until real revenue/ticket-resolution data exists.
+    static let monthlyRevenueDisplay = "$48,250"   // TODO: derive from real invoice/payment data
+    static let revenueGrowthDisplay = "12.4%"      // TODO: derive from real invoice/payment data
+    static let resolvedTodayDisplay = "2 resolved today"   // TODO: derive from real ticket-resolution data
 }
