@@ -259,7 +259,7 @@ export const Tenants = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-extrabold text-white text-outfit tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">
-            Tenant CRM
+            Tenant Management
           </h1>
           <p className="text-slate-400 text-sm mt-1">Manage tenant communications, payment arrangements, and active status notes</p>
         </div>

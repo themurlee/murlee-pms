@@ -128,7 +128,11 @@ function Shell() {
             {activeTab === 'properties' && <Properties userRole={userRole} />}
             {activeTab === 'tenants' && <Tenants />}
             {activeTab === 'maintenance' && <Maintenance />}
-            {activeTab === 'communications' && <Communications />}
+            {activeTab === 'communications' && (
+              <div className="-m-4 sm:-m-6 lg:-m-8 2xl:-m-12 p-4 sm:p-6 lg:p-8 2xl:p-12 bg-gradient-to-br from-[#2b1710] to-[#180e0c] rounded-2xl">
+                <Communications />
+              </div>
+            )}
             {activeTab === 'reports' && <Reports />}
             {activeTab === 'rent_collection' && (
               <InvoiceList

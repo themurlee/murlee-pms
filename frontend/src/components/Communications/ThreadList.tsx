@@ -6,9 +6,10 @@ interface ThreadListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   isLoading: boolean;
+  onNewMessage: () => void;
 }
 
-export const ThreadList = ({ threads, selectedId, onSelect, isLoading }: ThreadListProps) => {
+export const ThreadList = ({ threads, selectedId, onSelect, isLoading, onNewMessage }: ThreadListProps) => {
   const [search, setSearch] = useState('');
   const q = search.trim().toLowerCase();
   const filtered = q
@@ -17,7 +18,13 @@ export const ThreadList = ({ threads, selectedId, onSelect, isLoading }: ThreadL
 
   return (
     <div className="w-full sm:w-80 shrink-0 border-r border-white/5 flex flex-col">
-      <div className="p-3 border-b border-white/5">
+      <div className="p-3 border-b border-white/5 flex flex-col gap-2">
+        <button
+          onClick={onNewMessage}
+          className="w-full px-3 py-2 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 font-bold text-white text-sm shadow-lg shadow-indigo-500/20 hover:scale-[1.01] transition-all text-outfit"
+        >
+          + New Message
+        </button>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
