@@ -44,12 +44,23 @@ export const useInvoiceActions = () => {
     },
   });
 
+  const batchMarkAsPaidMutation = useMutation({
+    mutationFn: async (invoiceIds: string[]) => {
+      const response = await api.post('/invoices/batch/mark-paid', { ids: invoiceIds });
+      return response.data as { success_count: number; error_count: number; results: { id: string; ok: boolean; error?: string }[] };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+
   return {
     markAsPaid: markAsPaidMutation.mutateAsync,
     deleteInvoice: deleteInvoiceMutation.mutateAsync,
     addInvoiceItem: addInvoiceItemMutation.mutateAsync,
     deleteInvoiceItem: deleteInvoiceItemMutation.mutateAsync,
-    isLoading: markAsPaidMutation.isPending || deleteInvoiceMutation.isPending,
+    batchMarkAsPaid: batchMarkAsPaidMutation.mutateAsync,
+    isLoading: markAsPaidMutation.isPending || deleteInvoiceMutation.isPending || batchMarkAsPaidMutation.isPending,
     error: markAsPaidMutation.error || deleteInvoiceMutation.error,
   };
 };
