@@ -182,6 +182,25 @@ export const demoAdapter = async (config: any): Promise<any> => {
 
   // INVOICES
   if (method === 'get' && url === '/invoices') return res(invoices);
+  if (method === 'post' && url === '/invoices/batch/mark-paid') {
+    const ids: string[] = body.ids || [];
+    const results = ids.map((id: string) => {
+      const invoice = invoices.find((i) => i.id === id);
+      if (!invoice) return { id, ok: false, error: 'Invoice not found' };
+      if (invoice.status === 'paid') return { id, ok: false, error: 'Invoice is already paid' };
+      return { id, ok: true };
+    });
+    invoices = invoices.map((i) => (
+      results.some((r) => r.id === i.id && r.ok)
+        ? { ...i, status: 'paid', paid_at: nowIso(), actions: { can_mark_as_paid: false, can_edit: false, can_delete: false } }
+        : i
+    ));
+    return res({
+      success_count: results.filter((r) => r.ok).length,
+      error_count: results.filter((r) => !r.ok).length,
+      results,
+    });
+  }
   if (method === 'post' && /^\/invoices\/[^/]+\/mark-paid$/.test(url)) {
     const id = url.split('/')[2];
     invoices = invoices.map((i) => (i.id === id
@@ -302,6 +321,10 @@ export const demoAdapter = async (config: any): Promise<any> => {
   }
   if (method === 'post' && url === '/billing/run') {
     return res({ generated: 0, lateFees: 0, reminders: 0, note: 'Demo mode — billing cycle not run.' });
+  }
+
+  if (method === 'post' && url === '/ai-assistant/ask') {
+    return res({ answer: "This is a demo build, so I can't call the real assistant here — it needs a live backend with an Anthropic API key. Ask your landlord's real deployment about who's overdue, what maintenance is open, or lease details." });
   }
 
   return res({ error: `Demo mode: no handler for ${method.toUpperCase()} ${url}` }, 404);
