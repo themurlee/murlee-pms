@@ -266,6 +266,63 @@ async function markPaid(req, res) {
   }
 }
 
+const BATCH_ERROR_MESSAGES = {
+  not_found: 'Invoice not found',
+  not_owned: 'Invoice not found or not owned by this account',
+  already_paid: 'Invoice is already paid',
+};
+
+async function batchMarkPaid(req, res) {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+
+  if (!process.env.DATABASE_URL) {
+    return res.json({ success_count: ids.length, error_count: 0, results: ids.map((id) => ({ id, ok: true })) });
+  }
+
+  const results = [];
+  let success_count = 0;
+  let error_count = 0;
+
+  for (const id of ids) {
+    try {
+      const result = await invoiceService.markInvoicePaid(pool, req.user.id, id, {
+        reason: 'api:batch_mark_paid',
+        user_id: req.user?.id || null,
+        ip_address: req.ip || null,
+      });
+
+      if (!result.ok) {
+        error_count += 1;
+        results.push({ id, ok: false, error: BATCH_ERROR_MESSAGES[result.error] || result.error });
+        continue;
+      }
+
+      if (result.emailCtx) {
+        sendNotice({
+          ownerId: result.emailCtx.ownerId, tenantId: result.emailCtx.tenantId, invoiceId: id, type: 'payment_confirmation',
+          to: result.emailCtx.tenantEmail, subject: 'Payment received — thank you',
+          html: `<p>Hi ${result.emailCtx.tenantName},</p><p>We've recorded your rent payment of <strong>$${result.emailCtx.totalPaid.toFixed(2)}</strong>. Thank you!</p><p>Murlee PMS</p>`,
+        }).catch((e) => console.error('Payment confirmation email failed:', e.message));
+      }
+
+      success_count += 1;
+      results.push({ id, ok: true });
+    } catch (error) {
+      console.error(`Failed to mark invoice ${id} paid:`, error);
+      error_count += 1;
+      results.push({ id, ok: false, error: 'Internal error' });
+    }
+  }
+
+  invalidateDashboardCache();
+
+  res.json({ success_count, error_count, results });
+}
+
 async function deleteInvoice(req, res) {
   const { id } = req.params;
 
@@ -364,6 +421,7 @@ module.exports = {
   getInvoices,
   getInvoicesByProperty,
   markPaid,
+  batchMarkPaid,
   deleteInvoice,
   addInvoiceItem,
   deleteInvoiceItem,
