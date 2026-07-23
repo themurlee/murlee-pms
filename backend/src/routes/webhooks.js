@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../config/db');
 const invoiceService = require('../services/invoiceService');
 
 router.post('/plaid', async (req, res) => {
@@ -40,9 +41,12 @@ async function handleTransferWebhook(payload) {
 
     const newStatus = statusMap[payload.status];
     if (newStatus) {
-      await invoiceService.updateInvoiceStatus(transfer_id, newStatus);
+      await invoiceService.updateInvoiceStatus(pool, transfer_id, newStatus, {
+        reason: `webhook:transfer_${payload.status}`,
+      });
     }
   }
 }
 
 module.exports = router;
+module.exports.handleTransferWebhook = handleTransferWebhook;
