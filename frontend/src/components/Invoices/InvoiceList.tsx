@@ -77,6 +77,21 @@ export const InvoiceList = ({ invoices, onMarkAsPaid, onUpdateInvoice, onDelete 
     setSelectedIds(new Set());
   }, [leaseTab]);
 
+  // Prune selectedIds whenever the invoices prop changes — a selected invoice
+  // may have become 'paid' outside the batch flow (e.g. via the individual
+  // per-row "Mark Paid" button while the row was still checked), and stale
+  // ids left in selectedIds would inflate the floating bar's count/total and
+  // get resubmitted in the next batchMarkAsPaid call.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const stillPaid = invoices.filter((i) => prev.has(i.id) && i.status === 'paid');
+      if (stillPaid.length === 0) return prev;
+      const next = new Set(prev);
+      stillPaid.forEach((i) => next.delete(i.id));
+      return next;
+    });
+  }, [invoices]);
+
   const handleMarkPaidWithNotification = (id: string) => {
     onMarkAsPaid(id);
     setToastMessage(`Payment registered successfully for ${id}. Tenant has been notified!`);
